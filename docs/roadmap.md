@@ -23,7 +23,7 @@ Exit criteria:
 - product requirements are documented
 - roadmap is documented
 - initial architectural direction is recorded
-- implementation stack is ready to be finalized
+- implementation stack is finalized and recorded in ADR 0002
 
 ## Phase 1: Local LAN Multiplayer MVP
 
@@ -44,6 +44,10 @@ Suggested deliverables:
 - chess rules package integration
 - room UI and board UI
 - local run documentation
+
+Current implementation status:
+
+- monorepo, shared contracts, chess-core, Fastify/Socket.IO server, and React board are being built.
 
 Exit criteria:
 

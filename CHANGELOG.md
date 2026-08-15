@@ -18,8 +18,12 @@ The format is intentionally lightweight and optimized for agent handoff:
 - Added `docs/requirements.md` to capture agreed MVP scope, priorities, and non-goals.
 - Added `docs/roadmap.md` to define phased delivery from design through future AI support.
 - Added `docs/adr/0001-project-foundation.md` to record the initial architectural direction.
+- Added ADR 0002 to select pnpm, React/Vite, Fastify/Socket.IO, chess.js, and Vitest for the Phase 1 MVP.
+- Started the Phase 1 monorepo implementation for LAN room multiplayer.
+- Added a runnable Fastify/Socket.IO server, shared game protocol, isolated chess rules package, React board UI, LAN startup guide, and unit tests for core gameplay and rooms.
 
 ### Notes
 
 - Current agreed MVP excludes login, AI, matchmaking, and rankings.
 - First deployment target is a single-computer setup accessible over a local area network.
+- Active room state is intentionally in-memory for the MVP; a process restart clears rooms.

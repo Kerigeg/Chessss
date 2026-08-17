@@ -39,6 +39,8 @@ Priority labels:
 - Draw handling at minimum for positions that the chosen rules engine supports cleanly in the first version
 - Promotion flow
 - Game result state
+- Server-authoritative chess clock: each player starts with one minute, and reaching zero loses the game.
+- Low-time recovery rule: when a player has 20 seconds or less and moves within two seconds of their turn starting, add two seconds to their clock.
 
 ### Multiplayer
 
@@ -48,6 +50,13 @@ Priority labels:
 - Distinct white and black assignments
 - Realtime state synchronization
 - Reconnect behavior defined at least at a basic level
+
+### Computer Opponent
+
+- Home screen choice between LAN human multiplayer and computer play
+- Human player controls White and the computer controls Black through the same server command path
+- Computer levels: `beginner` (approximately Elo 250), `medium` (approximately Elo 700), `high` (approximately Elo 1400), `hell` (approximately Elo 2100), and unrestricted `stockfish`
+- Before starting a computer game, allow one-minute, three-minute, five-minute, ten-minute, thirty-minute, and forty-five-minute clocks per player
 
 ### Client Experience
 
@@ -87,7 +96,6 @@ Priority labels:
 - Persistent game history
 - User profiles
 - Authentication
-- Timers and time control
 - Matchmaking
 - Chat
 - Observability improvements
@@ -95,8 +103,6 @@ Priority labels:
 
 ## P3 Requirements
 
-- AI opponent integration
-- Multiple AI difficulty levels
 - Analysis mode
 - Review board and replay tools
 - Ranked ladder

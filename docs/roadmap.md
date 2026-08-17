@@ -23,7 +23,7 @@ Exit criteria:
 - product requirements are documented
 - roadmap is documented
 - initial architectural direction is recorded
-- implementation stack is ready to be finalized
+- implementation stack is finalized and recorded in ADR 0002
 
 ## Phase 1: Local LAN Multiplayer MVP
 
@@ -33,6 +33,8 @@ Goals:
 - create frontend, backend, and shared packages
 - implement room creation and joining
 - implement server-authoritative chess gameplay
+- implement the one-minute server-authoritative chess clock and timeout result
+- add the computer-play entry point and Stockfish-backed player controller
 - enable LAN access from another device
 - ship a complete playable browser experience
 
@@ -44,6 +46,10 @@ Suggested deliverables:
 - chess rules package integration
 - room UI and board UI
 - local run documentation
+
+Current implementation status:
+
+- monorepo, shared contracts, chess-core, Fastify/Socket.IO server, and React board are being built.
 
 Exit criteria:
 

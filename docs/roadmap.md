@@ -33,6 +33,8 @@ Goals:
 - create frontend, backend, and shared packages
 - implement room creation and joining
 - implement server-authoritative chess gameplay
+- implement the one-minute server-authoritative chess clock and timeout result
+- add the computer-play entry point and Stockfish-backed player controller
 - enable LAN access from another device
 - ship a complete playable browser experience
 

@@ -1,12 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { ChessColor, JoinRoomResponse, MoveRequest, RoomSnapshot, ServerError } from "@chessss/shared";
+import type { ChessColor, ComputerLevel, CreateComputerRoomRequest, JoinRoomResponse, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError } from "@chessss/shared";
 
 const STORAGE_KEY = "chessss-player-session";
 const glyphs: Record<string, string> = {
   wp: "♙", wn: "♘", wb: "♗", wr: "♖", wq: "♕", wk: "♔",
   bp: "♟", bn: "♞", bb: "♝", br: "♜", bq: "♛", bk: "♚",
 };
+const computerLevels: Array<{ id: ComputerLevel; title: string; detail: string }> = [
+  { id: "beginner", title: "Beginner", detail: "Approx. Elo 250" },
+  { id: "medium", title: "Medium", detail: "Approx. Elo 700" },
+  { id: "high", title: "High", detail: "Approx. Elo 1400" },
+  { id: "hell", title: "Hell", detail: "Approx. Elo 2100" },
+  { id: "stockfish", title: "Stockfish", detail: "Full engine strength" },
+];
+const computerTimeControls = [
+  { milliseconds: 60_000, label: "1 minute" },
+  { milliseconds: 180_000, label: "3 minutes" },
+  { milliseconds: 300_000, label: "5 minutes" },
+  { milliseconds: 600_000, label: "10 minutes" },
+  { milliseconds: 1_800_000, label: "30 minutes" },
+  { milliseconds: 2_700_000, label: "45 minutes" },
+];
 
 interface SavedSession { roomId: string; playerToken: string; }
 type Ack<T extends object> = T | { error: ServerError };
@@ -21,6 +36,10 @@ function loadSession(): SavedSession | null {
 
 function saveSession(roomId: string, playerToken: string) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ roomId, playerToken }));
+}
+
+function clearSession() {
+  localStorage.removeItem(STORAGE_KEY);
 }
 
 function boardFromFen(fen: string): Map<string, string> {
@@ -40,12 +59,26 @@ function boardFromFen(fen: string): Map<string, string> {
 }
 
 function colorName(color: ChessColor) { return color === "white" ? "White" : "Black"; }
+function computerLabel(level: ComputerLevel | null) { return computerLevels.find((option) => option.id === level)?.title ?? "Computer"; }
+function timeControlLabel(milliseconds: number) { return computerTimeControls.find((option) => option.milliseconds === milliseconds)?.label ?? `${Math.round(milliseconds / 60_000)} minutes`; }
 
 function resultText(room: RoomSnapshot): string | null {
   const result = room.game.result;
   if (!result) return null;
   if (result.kind === "checkmate") return `${colorName(result.winner!)} wins by checkmate.`;
+  if (result.kind === "timeout") return `${colorName(result.winner!)} wins on time.`;
   return `Draw — ${result.kind.replaceAll("-", " ")}.`;
+}
+
+function remainingMilliseconds(room: RoomSnapshot, color: ChessColor, now: number): number {
+  const stored = color === "white" ? room.clock.whiteMs : room.clock.blackMs;
+  if (room.clock.activeColor !== color || room.clock.turnStartedAt === null) return stored;
+  return Math.max(0, stored - (now - room.clock.turnStartedAt));
+}
+
+function formatClock(milliseconds: number): string {
+  const seconds = Math.ceil(milliseconds / 1_000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 export function App() {
@@ -55,9 +88,12 @@ export function App() {
   const [playerToken, setPlayerToken] = useState<string | null>(null);
   const [playerColor, setPlayerColor] = useState<ChessColor | null>(null);
   const [roomInput, setRoomInput] = useState("");
+  const [lobbyMode, setLobbyMode] = useState<"choose" | "human" | "computer" | "computer-time">("choose");
+  const [selectedComputerLevel, setSelectedComputerLevel] = useState<ComputerLevel | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [notice, setNotice] = useState("Create a room or join a friend with their room code.");
+  const [clockNow, setClockNow] = useState(() => Date.now());
 
   useEffect(() => {
     const serverUrl = import.meta.env.VITE_SERVER_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`;
@@ -81,6 +117,11 @@ export function App() {
     return () => { client.close(); };
   }, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 100);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const pieces = useMemo(() => room ? boardFromFen(room.game.fen) : new Map<string, string>(), [room]);
   const isYourTurn = Boolean(room && playerColor && room.status === "active" && room.game.turn === playerColor);
 
@@ -91,7 +132,9 @@ export function App() {
     setPlayerColor(response.playerColor);
     setSelected(null);
     setPendingPromotion(null);
-    setNotice(`You are ${colorName(response.playerColor)}. Share the code with your opponent.`);
+    setNotice(response.room.mode === "computer"
+      ? `You are White. ${computerLabel(response.room.computerLevel)} plays Black.`
+      : `You are ${colorName(response.playerColor)}. Share the code with your opponent.`);
   }
 
   function createRoom() {
@@ -112,6 +155,15 @@ export function App() {
     });
   }
 
+  function createComputerRoom(level: ComputerLevel, initialTimeMs: number) {
+    if (!socket || !connected) return setNotice("Connecting to the game server…");
+    const request: CreateComputerRoomRequest = { level, initialTimeMs };
+    socket.emit("computer:create", request, (response: Ack<JoinRoomResponse>) => {
+      if (hasError(response)) return setNotice(response.error.message);
+      acceptJoin(response);
+    });
+  }
+
   function submitMove(from: string, to: string, promotion?: "q" | "r" | "b" | "n") {
     if (!room || !playerToken || !socket) return;
     const request: MoveRequest = { roomId: room.id, playerToken, from, to, promotion };
@@ -123,6 +175,33 @@ export function App() {
     });
   }
 
+  function restartGame() {
+    if (!room || !playerToken || !socket) return;
+    const request: RestartGameRequest = { roomId: room.id, playerToken };
+    socket.emit("game:restart", request, (response: Ack<{ room: RoomSnapshot }>) => {
+      if (hasError(response)) return setNotice(response.error.message);
+      setRoom(response.room);
+      setSelected(null);
+      setNotice("A new game has started. White to move.");
+    });
+  }
+
+  function returnToHome() {
+    const reset = () => {
+      clearSession();
+      setRoom(null);
+      setPlayerToken(null);
+      setPlayerColor(null);
+      setSelected(null);
+      setPendingPromotion(null);
+      setLobbyMode("choose");
+      setNotice("Choose how you want to play your next game.");
+    };
+    if (!room || !playerToken || !socket) return reset();
+    socket.emit("room:leave", { roomId: room.id, playerToken }, () => undefined);
+    reset();
+  }
+
   function selectSquare(square: string) {
     if (!room || !playerColor || !playerToken || !socket) return;
     const piece = pieces.get(square);
@@ -132,6 +211,7 @@ export function App() {
       return;
     }
     if (square === selected) return setSelected(null);
+    if (isYourTurn && isOwnPiece) return setSelected(square);
     if (isYourTurn) {
       const movingPiece = pieces.get(selected);
       if (movingPiece?.toLowerCase() === "p" && (square.endsWith("1") || square.endsWith("8"))) {
@@ -153,18 +233,51 @@ export function App() {
       </header>
 
       {!room ? (
-        <section className="lobby card">
-          <h2>Play a local game</h2>
-          <p>Start a room, then send its six-character code to the other player on your network.</p>
-          <button className="primary" onClick={createRoom}>Create room</button>
-          <div className="divider"><span>or</span></div>
-          <label htmlFor="room-code">Room code</label>
-          <div className="join-row">
-            <input id="room-code" value={roomInput} onChange={(event) => setRoomInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && joinRoom()} placeholder="ABC123" maxLength={6} autoCapitalize="characters" />
-            <button onClick={joinRoom}>Join room</button>
-          </div>
-          <p className="notice">{notice}</p>
-        </section>
+        lobbyMode === "choose" ? (
+          <section className="lobby card">
+            <h2>Choose how to play</h2>
+            <p>Play a friend on your local network, or challenge the computer.</p>
+            <div className="mode-options">
+              <button className="mode-option" onClick={() => setLobbyMode("human")}><span>♚</span><strong>Play a person</strong><small>Create or join a LAN room</small></button>
+              <button className="mode-option" onClick={() => setLobbyMode("computer")}><span>♞</span><strong>Play the computer</strong><small>Choose a Stockfish difficulty</small></button>
+            </div>
+            <p className="notice">{notice}</p>
+          </section>
+        ) : lobbyMode === "human" ? (
+          <section className="lobby card">
+            <button className="back" onClick={() => setLobbyMode("choose")}>← Back</button>
+            <h2>Play a person</h2>
+            <p>Start a room, then send its six-character code to the other player on your network.</p>
+            <button className="primary" onClick={createRoom}>Create room</button>
+            <div className="divider"><span>or</span></div>
+            <label htmlFor="room-code">Room code</label>
+            <div className="join-row">
+              <input id="room-code" value={roomInput} onChange={(event) => setRoomInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && joinRoom()} placeholder="ABC123" maxLength={6} autoCapitalize="characters" />
+              <button onClick={joinRoom}>Join room</button>
+            </div>
+            <p className="notice">{notice}</p>
+          </section>
+        ) : lobbyMode === "computer" ? (
+          <section className="lobby card">
+            <button className="back" onClick={() => setLobbyMode("choose")}>← Back</button>
+            <h2>Choose computer strength</h2>
+            <p>You play White. The computer plays Black.</p>
+            <div className="level-options">
+              {computerLevels.map((level) => <button key={level.id} className="level-option" onClick={() => { setSelectedComputerLevel(level.id); setLobbyMode("computer-time"); }}><strong>{level.title}</strong><small>{level.detail}</small></button>)}
+            </div>
+            <p className="notice">{notice}</p>
+          </section>
+        ) : (
+          <section className="lobby card">
+            <button className="back" onClick={() => setLobbyMode("computer")}>← Back</button>
+            <h2>Choose time per player</h2>
+            <p>Playing against {computerLabel(selectedComputerLevel)}. Both sides receive the selected amount of time.</p>
+            <div className="level-options time-options">
+              {computerTimeControls.map((control) => <button key={control.milliseconds} className="level-option" onClick={() => selectedComputerLevel && createComputerRoom(selectedComputerLevel, control.milliseconds)}><strong>{control.label}</strong><small>Per player</small></button>)}
+            </div>
+            <p className="notice">{notice}</p>
+          </section>
+        )
       ) : (
         <section className="game-layout">
           <div className="board-card">
@@ -183,18 +296,22 @@ export function App() {
             <p className="board-help">Select one of your pieces, then select its destination. Choose a piece when a pawn reaches the last rank.</p>
           </div>
           <aside className="game-panel card">
-            <p className="eyebrow">ROOM</p>
-            <div className="room-code">{room.id}</div>
-            <p className="share">Share this code with your opponent.</p>
+            <p className="eyebrow">{room.mode === "computer" ? "COMPUTER" : "ROOM"}</p>
+            <div className="room-code">{room.mode === "computer" ? computerLabel(room.computerLevel) : room.id}</div>
+            <p className="share">{room.mode === "computer" ? `You are White. The computer is Black. ${timeControlLabel(room.timeControl.initialTimeMs)} each.` : "Share this code with your opponent."}</p>
             <div className="players">
               {(["white", "black"] as ChessColor[]).map((color) => {
                 const player = room.players.find((entry) => entry.color === color);
-                return <div className="player" key={color}><span>{colorName(color)} {playerColor === color ? "(you)" : ""}</span><em className={player?.connected ? "present" : ""}>{player?.connected ? "connected" : "waiting"}</em></div>;
+                const milliseconds = remainingMilliseconds(room, color, clockNow);
+                const active = room.clock.activeColor === color;
+                const label = player?.kind === "computer" ? `${computerLabel(room.computerLevel)} (${colorName(color)})` : `${colorName(color)} ${playerColor === color ? "(you)" : ""}`;
+                return <div className={`player ${active ? "active-clock" : ""}`} key={color}><span>{label}</span><strong className={milliseconds <= 20_000 ? "low-time" : ""}>{formatClock(milliseconds)}</strong><em className={player?.connected ? "present" : ""}>{player?.kind === "computer" ? active ? "thinking" : "ready" : player?.connected ? "connected" : "waiting"}</em></div>;
               })}
             </div>
             <div className="turn-status">
               {resultText(room) ?? (room.status === "waiting" ? "Waiting for Black to join." : `${colorName(room.game.turn)} to move${room.game.isCheck ? " — check" : ""}.`)}
             </div>
+            {room.status === "finished" && <div className="finish-actions"><button className="primary restart" onClick={restartGame}>Play rematch</button><button className="home" onClick={returnToHome}>Return to home</button></div>}
             <p className="notice">{notice}</p>
             <h3>Moves</h3>
             <ol className="moves">

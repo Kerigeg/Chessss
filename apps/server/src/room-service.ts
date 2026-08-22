@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { applyMove, createGame, snapshotGame } from "@chessss/chess-core";
-import type { ChessColor, ComputerLevel, CreateComputerRoomRequest, GameClock, GameMode, GameResult, JoinRoomRequest, JoinRoomResponse, LeaveRoomRequest, MoveRequest, RestartGameRequest, RoomSnapshot } from "@chessss/shared";
+import type { AnalyzeGameRequest, ChessColor, ChessGameState, ComputerLevel, CreateComputerRoomRequest, GameClock, GameMode, GameResult, JoinRoomRequest, JoinRoomResponse, LeaveRoomRequest, MoveRequest, RestartGameRequest, RoomSnapshot } from "@chessss/shared";
 import { StockfishComputer, type ComputerMove, type ComputerMoveProvider } from "./computer-player.js";
 
 const INITIAL_TIME_MS = 60_000;
@@ -100,12 +100,13 @@ export class RoomService {
     }
 
     if (room.game.isGameOver()) throw new RoomError("This game has already finished.");
-    if (room.players.has("black")) throw new RoomError("This room already has two players.");
+    if (room.players.size >= 2) throw new RoomError("This room already has two players.");
 
-    const black = this.newPlayer("black", socketId);
-    room.players.set("black", black);
+    const color: ChessColor = room.players.has("white") ? "black" : "white";
+    const joiningPlayer = this.newPlayer(color, socketId);
+    room.players.set(color, joiningPlayer);
     this.resumeClock(room);
-    return this.joinResponse(room, black);
+    return this.joinResponse(room, joiningPlayer);
   }
 
   move(request: MoveRequest, socketId: string): RoomSnapshot {
@@ -164,8 +165,8 @@ export class RoomService {
     const player = [...room.players.values()].find((candidate) => candidate.token === request.playerToken);
     if (!player || player.kind !== "human" || player.socketId !== socketId) throw new RoomError("You are not an active player in this room.");
 
-    player.socketId = null;
     this.pauseClock(room);
+    room.players.delete(player.color);
     return this.snapshot(room);
   }
 
@@ -198,6 +199,16 @@ export class RoomService {
 
   snapshotById(roomId: string): RoomSnapshot {
     return this.snapshot(this.getRoom(roomId));
+  }
+
+  analysisGame(request: AnalyzeGameRequest, socketId: string): ChessGameState {
+    const room = this.getRoom(request.roomId);
+    const player = [...room.players.values()].find((candidate) => candidate.token === request.playerToken);
+    if (!player || player.kind !== "human" || player.socketId !== socketId) throw new RoomError("You are not an active player in this room.");
+    if (!this.isFinished(room)) throw new RoomError("Analysis is available after the game ends.");
+    const game = snapshotGame(room.game);
+    game.result = room.forcedResult ?? game.result;
+    return game;
   }
 
   private snapshot(room: Room): RoomSnapshot {

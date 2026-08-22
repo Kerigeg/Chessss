@@ -2,6 +2,24 @@ export type ChessColor = "white" | "black";
 export type ComputerLevel = "beginner" | "medium" | "high" | "hell" | "stockfish";
 export type GameMode = "human" | "computer";
 
+export interface AuthUser {
+  username: string;
+}
+
+export interface CredentialsRequest {
+  username: string;
+  password: string;
+}
+
+export interface RestoreSessionRequest {
+  sessionToken: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  sessionToken: string;
+}
+
 export type GameResultKind =
   | "checkmate"
   | "stalemate"
@@ -26,8 +44,24 @@ export interface MoveView {
   promotion?: string;
 }
 
+export type MoveLabel = "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
+
+export interface MoveAnalysis {
+  moveIndex: number;
+  label: MoveLabel;
+  centipawnLoss: number;
+  evaluationCp: number;
+  bestMoveSan: string;
+}
+
+export interface GameAnalysis {
+  moves: MoveAnalysis[];
+}
+
 export interface ChessGameState {
   fen: string;
+  /** FEN for the initial position followed by every completed half-move. */
+  positionHistory: string[];
   turn: ChessColor;
   isCheck: boolean;
   moves: MoveView[];
@@ -93,6 +127,11 @@ export interface MoveRequest {
 }
 
 export interface RestartGameRequest {
+  roomId: string;
+  playerToken: string;
+}
+
+export interface AnalyzeGameRequest {
   roomId: string;
   playerToken: string;
 }

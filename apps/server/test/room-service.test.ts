@@ -86,14 +86,19 @@ describe("RoomService", () => {
     expect(state?.timeControl.initialTimeMs).toBe(300_000);
   });
 
-  it("lets a player leave a finished room and pauses its clock", () => {
+  it("releases a player's seat when they intentionally leave", () => {
     const rooms = new RoomService();
     const white = rooms.createRoom("socket-white");
-    rooms.joinRoom({ roomId: white.room.id }, "socket-black");
+    const black = rooms.joinRoom({ roomId: white.room.id }, "socket-black");
 
     const state = rooms.leave({ roomId: white.room.id, playerToken: white.playerToken }, "socket-white");
     expect(state.status).toBe("waiting");
-    expect(state.players.find((player) => player.color === "white")?.connected).toBe(false);
+    expect(state.players.find((player) => player.color === "white")).toBeUndefined();
     expect(state.clock.activeColor).toBeNull();
+
+    const replacement = rooms.joinRoom({ roomId: white.room.id }, "socket-replacement");
+    expect(replacement.playerColor).toBe("white");
+    expect(rooms.snapshotById(white.room.id).players).toHaveLength(2);
+    expect(black.playerColor).toBe("black");
   });
 });

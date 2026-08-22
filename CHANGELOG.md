@@ -11,8 +11,15 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ## Unreleased
 
+### Changed
+
+- Updated the repository collaboration guidelines to allow informal language, including profanity, in contributor discussions.
+
 ### Added
 
+- Added server-side post-game Stockfish analysis with per-move labels, evaluations, and suggested best moves.
+- Added manual username/password sign-up, sign-in, sign-out, and session restoration with locally persisted, salted password hashes.
+- Added post-game move replay and PGN downloads; engine-assisted review remains deferred.
 - Initialized collaboration foundation docs for a Codex-first project workflow.
 - Added `codex.md` as the repo-wide source of truth for cross-agent conventions.
 - Added `docs/requirements.md` to capture agreed MVP scope, priorities, and non-goals.
@@ -29,6 +36,7 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ### Fixed
 
+- Fixed intentional sign-out or room departure leaving a stale player seat that prevented a new login from joining the room.
 - Fixed the chessboard grid so every rank and file retains equal dimensions even when a rank has no pieces.
 - Added an explicit in-room restart action after a checkmate or draw, resetting the game for both players while preserving the room and colors.
 - Split end-of-game actions into an explicit rematch and a return-to-home flow, including server-side room departure and session cleanup.

@@ -33,9 +33,20 @@ function gameResult(chess: Chess): GameResult | null {
   return null;
 }
 
+function positionHistory(chess: Chess): string[] {
+  const replay = createGame();
+  const positions = [replay.fen()];
+  for (const move of chess.history()) {
+    replay.move(move);
+    positions.push(replay.fen());
+  }
+  return positions;
+}
+
 export function snapshotGame(chess: Chess): ChessGameState {
   return {
     fen: chess.fen(),
+    positionHistory: positionHistory(chess),
     turn: colorFromTurn(chess.turn()),
     isCheck: chess.isCheck(),
     moves: chess.history({ verbose: true }).map(toMoveView),

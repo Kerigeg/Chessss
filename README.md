@@ -11,6 +11,7 @@ Chessss is a server-authoritative chess application for local-area-network multi
 ### Features
 
 - LAN game rooms for two human players, with room-code joining and basic reconnect support.
+- Manual username/password sign-up and sign-in. Passwords are salted and hashed; browser sessions restore after a refresh.
 - Server-validated standard chess: legal moves, promotion, check, checkmate, stalemate, supported draws, and move history.
 - Server-authoritative clocks and timeout losses.
 - Computer play as White versus a Black computer controller:
@@ -22,6 +23,8 @@ Chessss is a server-authoritative chess application for local-area-network multi
 - Computer games offer 1, 3, 5, 10, 30, or 45 minutes per player.
 - The computer waits at least two seconds before replying; engine thinking can make it take longer.
 - End-of-game choices to play a rematch in the same room or return to the home screen.
+- Finished games can be replayed move by move and exported as PGN.
+- Finished games can be analyzed with Stockfish to show basic move labels, evaluation, and a suggested best move. Analysis is unavailable during live games.
 
 ### Prerequisites
 
@@ -52,7 +55,7 @@ Use `Ctrl+C` in the terminal to stop both development services.
 1. Run `pnpm dev` on the host computer.
 2. Find its local IP address, for example `192.168.1.20`.
 3. On both devices, open `http://192.168.1.20:5173`.
-4. For human multiplayer, one player chooses **Play a person → Create room** and shares the six-character room code. The other player chooses **Play a person → Join room** and enters the code.
+4. Create an account or sign in on each device. For human multiplayer, one player chooses **Play a person → Create room** and shares the six-character room code. The other player chooses **Play a person → Join room** and enters the code.
 
 Both devices must be on the same network. If macOS asks, allow incoming connections for Node.js. Do not expose these development ports directly to the public internet.
 
@@ -92,7 +95,8 @@ docs/adr              Architecture decisions
 ### Current limitations
 
 - Room state is in memory; restarting the server removes active rooms.
-- No authentication, persistence, matchmaking, spectator mode, or PGN export yet.
+- User accounts are stored locally in `data/users.json`; this LAN-focused credential storage is not yet production-grade.
+- No persistent game history, matchmaking, or spectator mode yet.
 - A computer game currently assigns the human to White.
 - This repository provides development/LAN startup, not a production deployment configuration.
 
@@ -111,6 +115,7 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 ### 功能
 
 - 局域网双人房间：通过六位房间码加入，并提供基础断线重连。
+- 支持手动用户名/密码注册和登录。密码会加盐哈希处理，刷新页面后会自动恢复浏览器会话。
 - 服务端判定标准国际象棋规则：合法走子、升变、将军、将死、逼和、支持的和棋与走子记录。
 - 服务端权威计时与超时判负。
 - 人机对战中人类执白、电脑执黑，提供五档难度：
@@ -122,6 +127,8 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 - 人机模式可选择每方 1、3、5、10、30 或 45 分钟。
 - 电脑每次走子前至少等待 2 秒；引擎计算较慢时会更久。
 - 对局结束后可选择同一房间再战，或返回首页。
+- 对局结束后可逐步回放，并下载 PGN 棋谱。
+- 对局结束后可使用 Stockfish 进行基础复盘，查看走子标签、局面评价和建议最佳着法；进行中的对局不会提供分析。
 
 ### 环境要求
 
@@ -152,7 +159,7 @@ pnpm dev
 1. 在主机上运行 `pnpm dev`。
 2. 查找主机局域网 IP，例如 `192.168.1.20`。
 3. 两位玩家都在浏览器访问 `http://192.168.1.20:5173`。
-4. 真人对战中，一位玩家选择 **Play a person → Create room** 创建房间并分享六位房间码；另一位玩家选择 **Play a person → Join room** 并输入房间码。
+4. 两台设备都先注册或登录。真人对战中，一位玩家选择 **Play a person → Create room** 创建房间并分享六位房间码；另一位玩家选择 **Play a person → Join room** 并输入房间码。
 
 两台设备必须接入同一个局域网。如 macOS 弹出防火墙提示，请允许 Node.js 的入站连接。开发端口不应直接暴露到公网。
 
@@ -192,7 +199,8 @@ docs/adr              架构决策记录
 ### 当前限制
 
 - 房间状态只保存在内存中，服务端重启会清空进行中的房间。
-- 暂不包含账号、持久化历史、匹配、观战或 PGN 导出。
+- 用户账号保存于本机的 `data/users.json`；这种面向局域网的凭据存储尚未达到生产环境级别。
+- 暂不包含持久化棋局历史、匹配或观战。
 - 人机对局中人类当前固定为白方。
 - 仓库提供的是开发与局域网启动方式，不包含生产部署配置。
 

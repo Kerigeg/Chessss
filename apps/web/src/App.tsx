@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { ChessColor, ComputerLevel, CreateComputerRoomRequest, JoinRoomResponse, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError } from "@chessss/shared";
+import type { AuthResponse, AuthUser, ChessColor, ComputerLevel, CreateComputerRoomRequest, CredentialsRequest, GameAnalysis, JoinRoomResponse, MoveAnalysis, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError } from "@chessss/shared";
 
 const STORAGE_KEY = "chessss-player-session";
+const AUTH_STORAGE_KEY = "chessss-auth-session";
 const glyphs: Record<string, string> = {
   wp: "♙", wn: "♘", wb: "♗", wr: "♖", wq: "♕", wk: "♔",
   bp: "♟", bn: "♞", bb: "♝", br: "♜", bq: "♛", bk: "♚",
@@ -24,6 +25,7 @@ const computerTimeControls = [
 ];
 
 interface SavedSession { roomId: string; playerToken: string; }
+interface SavedAuthSession { sessionToken: string; }
 type Ack<T extends object> = T | { error: ServerError };
 
 function hasError<T extends object>(value: Ack<T>): value is { error: ServerError } {
@@ -40,6 +42,18 @@ function saveSession(roomId: string, playerToken: string) {
 
 function clearSession() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+function loadAuthSession(): SavedAuthSession | null {
+  try { return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) ?? "null") as SavedAuthSession | null; } catch { return null; }
+}
+
+function saveAuthSession(sessionToken: string) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ sessionToken }));
+}
+
+function clearAuthSession() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
 function boardFromFen(fen: string): Map<string, string> {
@@ -81,9 +95,35 @@ function formatClock(milliseconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function pgnResult(room: RoomSnapshot): string {
+  if (!room.game.result) return "*";
+  if (!room.game.result.winner) return "1/2-1/2";
+  return room.game.result.winner === "white" ? "1-0" : "0-1";
+}
+
+function pgnFor(room: RoomSnapshot): string {
+  const movetext = room.game.moves.map((move, index) => `${index % 2 === 0 ? `${Math.floor(index / 2) + 1}. ` : ""}${move.san}`).join(" ");
+  const result = pgnResult(room);
+  return `[Event "Chessss game"]\n[Site "LAN"]\n[Result "${result}"]\n\n${movetext}${movetext ? " " : ""}${result}\n`;
+}
+
+function evaluationText(scoreCp: number): string {
+  const score = (scoreCp / 100).toFixed(1);
+  return `${scoreCp > 0 ? "+" : ""}${score}`;
+}
+
+function labelText(label: MoveAnalysis["label"]): string {
+  return label[0].toUpperCase() + label.slice(1);
+}
+
 export function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [playerToken, setPlayerToken] = useState<string | null>(null);
   const [playerColor, setPlayerColor] = useState<ChessColor | null>(null);
@@ -94,14 +134,18 @@ export function App() {
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [notice, setNotice] = useState("Create a room or join a friend with their room code.");
   const [clockNow, setClockNow] = useState(() => Date.now());
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(() => {
     const serverUrl = import.meta.env.VITE_SERVER_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`;
     const client = io(serverUrl);
     client.on("connect", () => {
       setConnected(true);
-      const saved = loadSession();
-      if (saved) {
+      const rejoinRoom = () => {
+        const saved = loadSession();
+        if (!saved) return;
         client.emit("room:join", saved, (response: Ack<JoinRoomResponse>) => {
           if (hasError(response)) return;
           setRoom(response.room);
@@ -109,7 +153,26 @@ export function App() {
           setPlayerColor(response.playerColor);
           setNotice(`Rejoined room ${response.room.id} as ${colorName(response.playerColor)}.`);
         });
+      };
+      const savedAuth = loadAuthSession();
+      if (!savedAuth) {
+        setAuthChecked(true);
+        return;
       }
+      client.emit("auth:restore", savedAuth, (response: Ack<AuthResponse>) => {
+        if (!hasError(response)) {
+          setUser(response.user);
+          rejoinRoom();
+        } else {
+          clearAuthSession();
+          clearSession();
+          setUser(null);
+          setRoom(null);
+          setPlayerToken(null);
+          setPlayerColor(null);
+        }
+        setAuthChecked(true);
+      });
     });
     client.on("disconnect", () => setConnected(false));
     client.on("room:state", (next: RoomSnapshot) => setRoom(next));
@@ -122,8 +185,14 @@ export function App() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const pieces = useMemo(() => room ? boardFromFen(room.game.fen) : new Map<string, string>(), [room]);
-  const isYourTurn = Boolean(room && playerColor && room.status === "active" && room.game.turn === playerColor);
+  useEffect(() => {
+    setReplayIndex(null);
+    setAnalysis(null);
+  }, [room?.id, room?.game.moves.length]);
+
+  const replayPosition = room && replayIndex !== null ? room.game.positionHistory[replayIndex] : undefined;
+  const pieces = useMemo(() => room ? boardFromFen(replayPosition ?? room.game.fen) : new Map<string, string>(), [room, replayPosition]);
+  const isYourTurn = Boolean(room && replayIndex === null && playerColor && room.status === "active" && room.game.turn === playerColor);
 
   function acceptJoin(response: JoinRoomResponse) {
     saveSession(response.room.id, response.playerToken);
@@ -143,6 +212,33 @@ export function App() {
       if (hasError(response)) return setNotice(response.error.message);
       acceptJoin(response);
     });
+  }
+
+  function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!socket || !connected) return setNotice("Connecting to the game server…");
+    const request: CredentialsRequest = { username, password };
+    socket.emit(`auth:${authMode}`, request, (response: Ack<AuthResponse>) => {
+      if (hasError(response)) return setNotice(response.error.message);
+      saveAuthSession(response.sessionToken);
+      setUser(response.user);
+      setPassword("");
+      setNotice(`Signed in as ${response.user.username}. Choose how you want to play.`);
+    });
+  }
+
+  function signOut() {
+    const saved = loadAuthSession();
+    if (room && playerToken && socket) socket.emit("room:leave", { roomId: room.id, playerToken }, () => undefined);
+    if (saved && socket) socket.emit("auth:signout", saved, () => undefined);
+    clearAuthSession();
+    clearSession();
+    setUser(null);
+    setRoom(null);
+    setPlayerToken(null);
+    setPlayerColor(null);
+    setLobbyMode("choose");
+    setNotice("Sign in to start a game.");
   }
 
   function joinRoom() {
@@ -202,6 +298,28 @@ export function App() {
     reset();
   }
 
+  function downloadPgn() {
+    if (!room) return;
+    const url = URL.createObjectURL(new Blob([pgnFor(room)], { type: "application/x-chess-pgn;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `chessss-${room.id}.pgn`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function analyzeGame() {
+    if (!room || !playerToken || !socket || room.status !== "finished") return;
+    setAnalyzing(true);
+    setNotice("Analyzing every move with Stockfish…");
+    socket.emit("game:analyze", { roomId: room.id, playerToken }, (response: Ack<GameAnalysis>) => {
+      setAnalyzing(false);
+      if (hasError(response)) return setNotice(response.error.message);
+      setAnalysis(response);
+      setNotice("Analysis complete. Labels and evaluations are shown beside each move.");
+    });
+  }
+
   function selectSquare(square: string) {
     if (!room || !playerColor || !playerToken || !socket) return;
     const piece = pieces.get(square);
@@ -229,10 +347,26 @@ export function App() {
       <header>
         <p className="eyebrow">LAN MULTIPLAYER</p>
         <h1>Chessss</h1>
+        {user && <span className="account">{user.username} <button onClick={signOut}>Sign out</button></span>}
         <span className={`connection ${connected ? "online" : ""}`}>{connected ? "Server connected" : "Connecting…"}</span>
       </header>
 
-      {!room ? (
+      {!authChecked ? <section className="lobby card"><p>Restoring your session…</p></section> : !user ? (
+        <section className="lobby card auth-card">
+          <p className="eyebrow">ACCOUNT</p>
+          <h2>{authMode === "signin" ? "Welcome back" : "Create your account"}</h2>
+          <p>{authMode === "signin" ? "Sign in to create or join a chess game." : "Register with a username and password to start playing."}</p>
+          <form onSubmit={submitAuth}>
+            <label htmlFor="username">Username</label>
+            <input id="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" required />
+            <label htmlFor="password">Password</label>
+            <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={8} maxLength={128} required />
+            <button className="primary" type="submit">{authMode === "signin" ? "Sign in" : "Sign up"}</button>
+          </form>
+          <button className="auth-switch" onClick={() => setAuthMode((mode) => mode === "signin" ? "signup" : "signin")}>{authMode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in"}</button>
+          <p className="notice">{notice}</p>
+        </section>
+      ) : !room ? (
         lobbyMode === "choose" ? (
           <section className="lobby card">
             <h2>Choose how to play</h2>
@@ -293,7 +427,7 @@ export function App() {
                 </button>;
               }))}
             </div>
-            <p className="board-help">Select one of your pieces, then select its destination. Choose a piece when a pawn reaches the last rank.</p>
+            <p className="board-help">{replayIndex !== null ? `Reviewing ${replayIndex === 0 ? "the starting position" : `move ${replayIndex}`}. Select Latest to resume the live board.` : "Select one of your pieces, then select its destination. Choose a piece when a pawn reaches the last rank."}</p>
           </div>
           <aside className="game-panel card">
             <p className="eyebrow">{room.mode === "computer" ? "COMPUTER" : "ROOM"}</p>
@@ -314,8 +448,18 @@ export function App() {
             {room.status === "finished" && <div className="finish-actions"><button className="primary restart" onClick={restartGame}>Play rematch</button><button className="home" onClick={returnToHome}>Return to home</button></div>}
             <p className="notice">{notice}</p>
             <h3>Moves</h3>
+            {room.status === "finished" && <div className="review-actions">
+              <button onClick={() => setReplayIndex((current) => Math.max(0, (current ?? room.game.moves.length) - 1))} disabled={replayIndex === 0}>← Previous</button>
+              <button onClick={() => setReplayIndex((current) => Math.min(room.game.moves.length, (current ?? room.game.moves.length) + 1))} disabled={replayIndex === room.game.moves.length}>Next →</button>
+              <button onClick={() => setReplayIndex(null)} disabled={replayIndex === null}>Latest</button>
+              <button onClick={downloadPgn}>Download PGN</button>
+              <button className="analyze" onClick={analyzeGame} disabled={analyzing}>{analyzing ? "Analyzing…" : analysis ? "Analyze again" : "Analyze game"}</button>
+            </div>}
             <ol className="moves">
-              {room.game.moves.length === 0 ? <li>No moves yet.</li> : room.game.moves.map((move, index) => <li key={`${move.san}-${index}`}><span>{Math.floor(index / 2) + 1}{index % 2 === 0 ? "." : "…"}</span>{move.san}</li>)}
+              {room.game.moves.length === 0 ? <li>No moves yet.</li> : room.game.moves.map((move, index) => {
+                const moveAnalysis = analysis?.moves[index];
+                return <li key={`${move.san}-${index}`} className={replayIndex === index + 1 ? "active-move" : ""}><button onClick={() => setReplayIndex(index + 1)}><span>{Math.floor(index / 2) + 1}{index % 2 === 0 ? "." : "…"}</span>{move.san}{moveAnalysis && <small className={`move-label ${moveAnalysis.label}`}>{labelText(moveAnalysis.label)} · {evaluationText(moveAnalysis.evaluationCp)} · Best: {moveAnalysis.bestMoveSan}</small>}</button></li>;
+              })}
             </ol>
           </aside>
         </section>

@@ -8,7 +8,10 @@ describe("chess-core", () => {
 
     const move = applyMove(game, { from: "e2", to: "e4" });
     expect(move.san).toBe("e4");
-    expect(snapshotGame(game).turn).toBe("black");
+    const snapshot = snapshotGame(game);
+    expect(snapshot.turn).toBe("black");
+    expect(snapshot.positionHistory).toHaveLength(2);
+    expect(snapshot.positionHistory.at(-1)).toBe(snapshot.fen);
   });
 
   it("recognizes checkmate", () => {

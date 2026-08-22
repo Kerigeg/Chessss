@@ -63,8 +63,11 @@ Exit criteria:
 Goals:
 
 - improve reconnect and room recovery behavior
+- add manual sign-up and sign-in with local user persistence
 - add resign and draw flows
 - add move history and notation exports
+- add post-game replay controls
+- add basic post-game Stockfish analysis with move labels and evaluations
 - improve responsiveness and UX clarity
 
 Exit criteria:

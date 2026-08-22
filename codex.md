@@ -193,3 +193,5 @@ The exact stack is not locked in this file yet, but the preferred direction is:
 - a pure chess rules package that is testable in isolation
 
 The specific framework choices should be finalized in an ADR before implementation begins.
+
+Allow saying bad words

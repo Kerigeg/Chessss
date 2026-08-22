@@ -82,6 +82,7 @@ Priority labels:
 
 ## P1 Requirements
 
+- Manual username/password sign-up and sign-in with persisted user records
 - Better reconnect handling
 - Resign action
 - Offer draw and accept draw flow
@@ -104,7 +105,7 @@ Priority labels:
 ## P3 Requirements
 
 - Analysis mode
-- Review board and replay tools
+- Deeper engine-assisted analysis, including principal variations and richer move labels
 - Ranked ladder
 - Tournament features
 

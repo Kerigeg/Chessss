@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import { setTimeout as delay } from "node:timers/promises";
 import { Server } from "socket.io";
-import type { AnalyzeGameRequest, AuthResponse, CredentialsRequest, CreateComputerRoomRequest, GameAnalysis, JoinRoomRequest, LeaveRoomRequest, MoveRequest, RestartGameRequest, RestoreSessionRequest, ServerError } from "@chessss/shared";
+import type { AdminLoginRequest, AdminUserSummary, AnalyzeGameRequest, AuthResponse, BanUserRequest, CredentialsRequest, CreateComputerRoomRequest, GameAnalysis, JoinRoomRequest, LeaveRoomRequest, MoveRequest, RestartGameRequest, RestoreSessionRequest, ServerError } from "@chessss/shared";
 import { AuthError, AuthService } from "./auth-service.js";
 import { GameAnalyzer } from "./game-analyzer.js";
 import { RoomError, RoomService } from "./room-service.js";
@@ -35,6 +35,7 @@ io.on("connection", (socket) => {
     try {
       const response = auth.signUp(request);
       socket.data.sessionToken = response.sessionToken;
+      socket.data.username = response.user.username;
       respond(response);
     } catch (error) {
       respond({ error: errorResponse(error) });
@@ -45,6 +46,18 @@ io.on("connection", (socket) => {
     try {
       const response = auth.signIn(request);
       socket.data.sessionToken = response.sessionToken;
+      socket.data.username = response.user.username;
+      respond(response);
+    } catch (error) {
+      respond({ error: errorResponse(error) });
+    }
+  });
+
+  socket.on("auth:admin-signin", (request: AdminLoginRequest, respond: (response: AuthResponse | { error: ServerError }) => void) => {
+    try {
+      const response = auth.signInAdmin(request);
+      socket.data.sessionToken = response.sessionToken;
+      socket.data.username = response.user.username;
       respond(response);
     } catch (error) {
       respond({ error: errorResponse(error) });
@@ -55,6 +68,7 @@ io.on("connection", (socket) => {
     try {
       const response = auth.restore(request.sessionToken);
       socket.data.sessionToken = response.sessionToken;
+      socket.data.username = response.user.username;
       respond(response);
     } catch (error) {
       respond({ error: errorResponse(error) });
@@ -64,7 +78,42 @@ io.on("connection", (socket) => {
   socket.on("auth:signout", (request: RestoreSessionRequest, respond: () => void) => {
     auth.signOut(request.sessionToken);
     delete socket.data.sessionToken;
+    delete socket.data.username;
     respond();
+  });
+
+  socket.on("admin:users", (respond: (response: AdminUserSummary[] | { error: ServerError }) => void) => {
+    try {
+      requireAuthenticated(socket);
+      respond(auth.listUsers(socket.data.sessionToken!));
+    } catch (error) {
+      respond({ error: errorResponse(error) });
+    }
+  });
+
+  socket.on("admin:ban", (request: BanUserRequest, respond: (response: AdminUserSummary[] | { error: ServerError }) => void) => {
+    try {
+      requireAuthenticated(socket);
+      const users = auth.banUser(socket.data.sessionToken!, request.username);
+      for (const connectedSocket of io.sockets.sockets.values()) {
+        if (connectedSocket.data.username?.toLowerCase() === request.username.toLowerCase()) {
+          connectedSocket.emit("admin:banned");
+          connectedSocket.disconnect(true);
+        }
+      }
+      respond(users);
+    } catch (error) {
+      respond({ error: errorResponse(error) });
+    }
+  });
+
+  socket.on("admin:unban", (request: BanUserRequest, respond: (response: AdminUserSummary[] | { error: ServerError }) => void) => {
+    try {
+      requireAuthenticated(socket);
+      respond(auth.unbanUser(socket.data.sessionToken!, request.username));
+    } catch (error) {
+      respond({ error: errorResponse(error) });
+    }
   });
 
   socket.on("room:create", (respond: (response: unknown) => void) => {

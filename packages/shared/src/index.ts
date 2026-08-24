@@ -4,11 +4,27 @@ export type GameMode = "human" | "computer";
 
 export interface AuthUser {
   username: string;
+  isAdmin: boolean;
+}
+
+export interface AdminUserSummary {
+  username: string;
+  banned: boolean;
+  isAdmin: boolean;
+}
+
+export interface BanUserRequest {
+  username: string;
 }
 
 export interface CredentialsRequest {
   username: string;
   password: string;
+}
+
+export interface AdminLoginRequest {
+  username: string;
+  adminCode: string;
 }
 
 export interface RestoreSessionRequest {

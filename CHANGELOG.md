@@ -17,6 +17,8 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ### Added
 
+- Added a separate administrator login portal using a username and server-validated admin code, plus the existing account moderation panel.
+- Added an administrator action to unban accounts and allow them to sign in again.
 - Added server-side post-game Stockfish analysis with per-move labels, evaluations, and suggested best moves.
 - Added manual username/password sign-up, sign-in, sign-out, and session restoration with locally persisted, salted password hashes.
 - Added post-game move replay and PGN downloads; engine-assisted review remains deferred.

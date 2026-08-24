@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { AuthResponse, AuthUser, ChessColor, ComputerLevel, CreateComputerRoomRequest, CredentialsRequest, GameAnalysis, JoinRoomResponse, MoveAnalysis, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError } from "@chessss/shared";
+import type { AdminLoginRequest, AdminUserSummary, AuthResponse, AuthUser, ChessColor, ComputerLevel, CreateComputerRoomRequest, CredentialsRequest, GameAnalysis, JoinRoomResponse, MoveAnalysis, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError } from "@chessss/shared";
 
 const STORAGE_KEY = "chessss-player-session";
 const AUTH_STORAGE_KEY = "chessss-auth-session";
@@ -121,7 +121,7 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authMode, setAuthMode] = useState<"signin" | "signup" | "admin">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
@@ -137,6 +137,7 @@ export function App() {
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
 
   useEffect(() => {
     const serverUrl = import.meta.env.VITE_SERVER_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`;
@@ -175,10 +176,27 @@ export function App() {
       });
     });
     client.on("disconnect", () => setConnected(false));
+    client.on("admin:banned", () => {
+      clearAuthSession();
+      clearSession();
+      setUser(null);
+      setRoom(null);
+      setPlayerToken(null);
+      setPlayerColor(null);
+      setNotice("This account has been banned.");
+    });
     client.on("room:state", (next: RoomSnapshot) => setRoom(next));
     setSocket(client);
     return () => { client.close(); };
   }, []);
+
+  useEffect(() => {
+    if (!socket || !user?.isAdmin) return setAdminUsers([]);
+    socket.emit("admin:users", (response: Ack<AdminUserSummary[]>) => {
+      if (hasError(response)) return setNotice(response.error.message);
+      setAdminUsers(response);
+    });
+  }, [socket, user]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setClockNow(Date.now()), 100);
@@ -217,14 +235,23 @@ export function App() {
   function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!socket || !connected) return setNotice("Connecting to the game server…");
-    const request: CredentialsRequest = { username, password };
-    socket.emit(`auth:${authMode}`, request, (response: Ack<AuthResponse>) => {
+    const eventName = authMode === "admin" ? "auth:admin-signin" : `auth:${authMode}`;
+    const request: CredentialsRequest | AdminLoginRequest = authMode === "admin"
+      ? { username, adminCode: password }
+      : { username, password };
+    socket.emit(eventName, request, (response: Ack<AuthResponse>) => {
       if (hasError(response)) return setNotice(response.error.message);
       saveAuthSession(response.sessionToken);
       setUser(response.user);
       setPassword("");
-      setNotice(`Signed in as ${response.user.username}. Choose how you want to play.`);
+      setNotice(`${response.user.isAdmin ? "Administrator" : "Player"} ${response.user.username} signed in.`);
     });
+  }
+
+  function chooseAuthMode(mode: "signin" | "signup" | "admin") {
+    setAuthMode(mode);
+    setPassword("");
+    setNotice(mode === "admin" ? "Enter an administrator username and code." : "Sign in or create a player account.");
   }
 
   function signOut() {
@@ -238,7 +265,27 @@ export function App() {
     setPlayerToken(null);
     setPlayerColor(null);
     setLobbyMode("choose");
+    setAdminUsers([]);
     setNotice("Sign in to start a game.");
+  }
+
+  function banUser(usernameToBan: string) {
+    if (!socket || !user?.isAdmin) return;
+    if (!window.confirm(`Ban ${usernameToBan}? They will be signed out immediately.`)) return;
+    socket.emit("admin:ban", { username: usernameToBan }, (response: Ack<AdminUserSummary[]>) => {
+      if (hasError(response)) return setNotice(response.error.message);
+      setAdminUsers(response);
+      setNotice(`${usernameToBan} has been banned.`);
+    });
+  }
+
+  function unbanUser(usernameToUnban: string) {
+    if (!socket || !user?.isAdmin) return;
+    socket.emit("admin:unban", { username: usernameToUnban }, (response: Ack<AdminUserSummary[]>) => {
+      if (hasError(response)) return setNotice(response.error.message);
+      setAdminUsers(response);
+      setNotice(`${usernameToUnban} can sign in again.`);
+    });
   }
 
   function joinRoom() {
@@ -347,23 +394,28 @@ export function App() {
       <header>
         <p className="eyebrow">LAN MULTIPLAYER</p>
         <h1>Chessss</h1>
-        {user && <span className="account">{user.username} <button onClick={signOut}>Sign out</button></span>}
+        {user && <span className="account">{user.username}{user.isAdmin && <small>ADMIN</small>} <button onClick={signOut}>Sign out</button></span>}
         <span className={`connection ${connected ? "online" : ""}`}>{connected ? "Server connected" : "Connecting…"}</span>
       </header>
 
       {!authChecked ? <section className="lobby card"><p>Restoring your session…</p></section> : !user ? (
         <section className="lobby card auth-card">
-          <p className="eyebrow">ACCOUNT</p>
-          <h2>{authMode === "signin" ? "Welcome back" : "Create your account"}</h2>
-          <p>{authMode === "signin" ? "Sign in to create or join a chess game." : "Register with a username and password to start playing."}</p>
+          <p className="eyebrow">{authMode === "admin" ? "ADMINISTRATION" : "ACCOUNT"}</p>
+          <h2>{authMode === "admin" ? "Admin login" : authMode === "signin" ? "Welcome back" : "Create your account"}</h2>
+          <p>{authMode === "admin" ? "Use your administrator username and private admin code." : authMode === "signin" ? "Sign in to create or join a chess game." : "Register with a username and password to start playing."}</p>
           <form onSubmit={submitAuth}>
             <label htmlFor="username">Username</label>
             <input id="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" required />
-            <label htmlFor="password">Password</label>
-            <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={8} maxLength={128} required />
-            <button className="primary" type="submit">{authMode === "signin" ? "Sign in" : "Sign up"}</button>
+            <label htmlFor="password">{authMode === "admin" ? "Admin code" : "Password"}</label>
+            <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={authMode === "admin" ? "off" : authMode === "signin" ? "current-password" : "new-password"} minLength={authMode === "admin" ? 1 : 8} maxLength={128} required />
+            <button className="primary" type="submit">{authMode === "admin" ? "Enter admin portal" : authMode === "signin" ? "Sign in" : "Sign up"}</button>
           </form>
-          <button className="auth-switch" onClick={() => setAuthMode((mode) => mode === "signin" ? "signup" : "signin")}>{authMode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in"}</button>
+          <div className="auth-options">
+            {authMode === "admin" ? <button className="auth-switch" onClick={() => chooseAuthMode("signin")}>← Player login</button> : <>
+              <button className="auth-switch" onClick={() => chooseAuthMode(authMode === "signin" ? "signup" : "signin")}>{authMode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in"}</button>
+              <button className="auth-switch admin-login" onClick={() => chooseAuthMode("admin")}>Admin login</button>
+            </>}
+          </div>
           <p className="notice">{notice}</p>
         </section>
       ) : !room ? (
@@ -375,6 +427,16 @@ export function App() {
               <button className="mode-option" onClick={() => setLobbyMode("human")}><span>♚</span><strong>Play a person</strong><small>Create or join a LAN room</small></button>
               <button className="mode-option" onClick={() => setLobbyMode("computer")}><span>♞</span><strong>Play the computer</strong><small>Choose a Stockfish difficulty</small></button>
             </div>
+            {user.isAdmin && <section className="admin-panel">
+              <p className="eyebrow">ADMINISTRATION</p>
+              <h3>Accounts</h3>
+              <div className="admin-users">
+                {adminUsers.map((account) => <div className="admin-user" key={account.username}>
+                  <span>{account.username}{account.isAdmin ? " (admin)" : ""}</span>
+                  {account.isAdmin ? <small>Protected</small> : account.banned ? <button className="unban" onClick={() => unbanUser(account.username)}>Unban</button> : <button onClick={() => banUser(account.username)}>Ban</button>}
+                </div>)}
+              </div>
+            </section>}
             <p className="notice">{notice}</p>
           </section>
         ) : lobbyMode === "human" ? (

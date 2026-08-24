@@ -64,6 +64,7 @@ Goals:
 
 - improve reconnect and room recovery behavior
 - add manual sign-up and sign-in with local user persistence
+- add a separate administrator login and basic account moderation panel
 - add resign and draw flows
 - add move history and notation exports
 - add post-game replay controls

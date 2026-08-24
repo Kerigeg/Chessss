@@ -1,13 +1,17 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { AuthResponse, AuthUser, CredentialsRequest } from "@chessss/shared";
+import type { AdminLoginRequest, AdminUserSummary, AuthResponse, AuthUser, CredentialsRequest } from "@chessss/shared";
+
+const DEFAULT_ADMIN_CODE = "KV99";
 
 interface StoredUser {
   username: string;
   passwordHash: string;
   passwordSalt: string;
   sessionHashes: string[];
+  banned?: boolean;
+  admin?: boolean;
 }
 
 interface UserDatabase {
@@ -19,13 +23,17 @@ export class AuthError extends Error {}
 export class AuthService {
   private readonly database: UserDatabase;
 
-  constructor(private readonly filePath = resolve(process.cwd(), "data", "users.json")) {
+  constructor(
+    private readonly filePath = resolve(process.cwd(), "data", "users.json"),
+    private readonly adminCode = process.env.ADMIN_CODE ?? DEFAULT_ADMIN_CODE,
+  ) {
     this.database = this.load();
   }
 
   signUp(request: CredentialsRequest): AuthResponse {
     const username = this.validateUsername(request.username);
     this.validatePassword(request.password);
+    if (username.toLowerCase() === "admin") throw new AuthError("That username is reserved for administrator access.");
     if (this.findUser(username)) throw new AuthError("That username is already taken.");
 
     const passwordSalt = randomBytes(16).toString("hex");
@@ -43,6 +51,32 @@ export class AuthService {
     const username = this.validateUsername(request.username);
     const user = this.findUser(username);
     if (!user || !this.passwordMatches(user, request.password)) throw new AuthError("Incorrect username or password.");
+    if (this.isAdmin(user) || username.toLowerCase() === "admin") throw new AuthError("Use the administrator login portal for this account.");
+    if (user.banned) throw new AuthError("This account has been banned.");
+    return this.createSession(user);
+  }
+
+  signInAdmin(request: AdminLoginRequest): AuthResponse {
+    const username = this.validateUsername(request.username);
+    if (!this.safeEqual(this.hashSession(request.adminCode), this.hashSession(this.adminCode))) {
+      throw new AuthError("Incorrect administrator code.");
+    }
+
+    let user = this.findUser(username);
+    if (user?.banned) throw new AuthError("This account has been banned.");
+    if (!user) {
+      const passwordSalt = randomBytes(16).toString("hex");
+      user = {
+        username,
+        passwordSalt,
+        passwordHash: this.hashPassword(randomBytes(32).toString("base64url"), passwordSalt),
+        sessionHashes: [],
+        admin: true,
+      };
+      this.database.users.push(user);
+    } else {
+      user.admin = true;
+    }
     return this.createSession(user);
   }
 
@@ -50,7 +84,8 @@ export class AuthService {
     const sessionHash = this.hashSession(sessionToken);
     const user = this.database.users.find((candidate) => candidate.sessionHashes.some((hash) => this.safeEqual(hash, sessionHash)));
     if (!user) throw new AuthError("Your session has expired. Please sign in again.");
-    return { user: { username: user.username }, sessionToken };
+    if (user.banned) throw new AuthError("This account has been banned.");
+    return { user: this.publicUser(user), sessionToken };
   }
 
   signOut(sessionToken: string) {
@@ -65,11 +100,58 @@ export class AuthService {
     }
   }
 
+  userForSession(sessionToken: string): AuthUser {
+    return this.restore(sessionToken).user;
+  }
+
+  listUsers(sessionToken: string): AdminUserSummary[] {
+    this.requireAdmin(sessionToken);
+    return this.database.users.map((user) => ({
+      username: user.username,
+      banned: Boolean(user.banned),
+      isAdmin: this.isAdmin(user),
+    }));
+  }
+
+  banUser(sessionToken: string, username: string): AdminUserSummary[] {
+    this.requireAdmin(sessionToken);
+    const user = this.findUser(username);
+    if (!user) throw new AuthError("That account does not exist.");
+    if (this.isAdmin(user)) throw new AuthError("The administrator account cannot be banned.");
+    user.banned = true;
+    user.sessionHashes = [];
+    this.persist();
+    return this.listUsers(sessionToken);
+  }
+
+  unbanUser(sessionToken: string, username: string): AdminUserSummary[] {
+    this.requireAdmin(sessionToken);
+    const user = this.findUser(username);
+    if (!user) throw new AuthError("That account does not exist.");
+    if (this.isAdmin(user)) throw new AuthError("The administrator account cannot be moderated.");
+    user.banned = false;
+    this.persist();
+    return this.listUsers(sessionToken);
+  }
+
   private createSession(user: StoredUser): AuthResponse {
     const sessionToken = randomBytes(32).toString("base64url");
     user.sessionHashes.push(this.hashSession(sessionToken));
     this.persist();
-    return { user: { username: user.username }, sessionToken };
+    return { user: this.publicUser(user), sessionToken };
+  }
+
+  private publicUser(user: StoredUser): AuthUser {
+    return { username: user.username, isAdmin: this.isAdmin(user) };
+  }
+
+  private isAdmin(user: StoredUser): boolean {
+    return Boolean(user.admin);
+  }
+
+  private requireAdmin(sessionToken: string) {
+    const user = this.userForSession(sessionToken);
+    if (!user.isAdmin) throw new AuthError("Administrator access is required.");
   }
 
   private load(): UserDatabase {

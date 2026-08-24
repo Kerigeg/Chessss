@@ -12,6 +12,7 @@ Chessss is a server-authoritative chess application for local-area-network multi
 
 - LAN game rooms for two human players, with room-code joining and basic reconnect support.
 - Manual username/password sign-up and sign-in. Passwords are salted and hashed; browser sessions restore after a refresh.
+- Separate administrator login using a username and admin code, with account listing, ban, and unban controls. The local default code is `KV99` and can be overridden with `ADMIN_CODE`.
 - Server-validated standard chess: legal moves, promotion, check, checkmate, stalemate, supported draws, and move history.
 - Server-authoritative clocks and timeout losses.
 - Computer play as White versus a Black computer controller:
@@ -116,6 +117,7 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 
 - 局域网双人房间：通过六位房间码加入，并提供基础断线重连。
 - 支持手动用户名/密码注册和登录。密码会加盐哈希处理，刷新页面后会自动恢复浏览器会话。
+- 提供独立管理员登录入口，通过用户名和管理员代码进入账号管理、封禁与解封界面。本地默认代码为 `KV99`，可通过 `ADMIN_CODE` 覆盖。
 - 服务端判定标准国际象棋规则：合法走子、升变、将军、将死、逼和、支持的和棋与走子记录。
 - 服务端权威计时与超时判负。
 - 人机对战中人类执白、电脑执黑，提供五档难度：

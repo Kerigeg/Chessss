@@ -83,6 +83,7 @@ Priority labels:
 ## P1 Requirements
 
 - Manual username/password sign-up and sign-in with persisted user records
+- Separate administrator-code login and basic account moderation controls
 - Better reconnect handling
 - Resign action
 - Offer draw and accept draw flow

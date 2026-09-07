@@ -129,3 +129,17 @@ Recommended next implementation sequence:
 4. Build the server-authoritative room lifecycle.
 5. Build the board UI and integrate gameplay.
 6. Test LAN access across two devices.
+
+## Phase 6: Competitive Community Features
+
+Status: implemented for the current single-server LAN/small-community architecture.
+
+Delivered:
+
+- persistent Bullet, Blitz, and Rapid Elo pools
+- rated/casual rooms, rating previews, leaderboards, and public profiles
+- deterministic server-managed Swiss tournaments with assigned rooms and live standings
+- tournament administration, audit records, forfeit handling, and compensating rating reversals
+- abuse limits for repeated opponents and manual-review flags for repeated short resignations
+
+Next hardening step: migrate JSON persistence and in-memory active rooms to a transactional database/coordinated runtime before public or multi-server deployment.

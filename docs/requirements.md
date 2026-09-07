@@ -6,7 +6,7 @@ Build a deployable chess website that starts with LAN-based two-player multiplay
 
 ## Current Product Stage
 
-Current stage: design and requirement alignment.
+Current stage: playable LAN/small-community platform with accounts, administration, ratings, and Swiss tournaments.
 
 The immediate goal is to define a clean MVP that is fast to build, easy for multiple Codex agents to continue, and structurally ready for later AI support.
 
@@ -93,6 +93,16 @@ Priority labels:
 - Better error states and room lifecycle handling
 - Basic responsive UI polish
 
+## Competitive Platform Requirements (implemented)
+
+- Rated and casual authenticated human rooms with immutable pre-game eligibility
+- Separate Bullet, Blitz, and Rapid Elo pools and persistent rating history
+- Public active-player leaderboards and public rating profiles
+- Server-managed 4–32 player, 3–7 round Swiss tournaments
+- Player-created private drafts with admin/moderator approval and permanent deletion, creator-managed lifecycle controls, registration, optional check-in, assigned tournament rooms, standings, Buchholz, byes, forfeits, and spectating
+- Idempotent rating and tournament processing, auditable rating reversals, and no Elo changes for computer games, cancellations, or administrative forfeits
+- Manual-only fair-play decisions; automated signals never ban an account
+
 ## P2 Requirements
 
 - Persistent game history
@@ -110,7 +120,7 @@ Priority labels:
 - Ranked ladder
 - Tournament features
 
-## Explicit Non-Goals For MVP
+## Original MVP Non-Goals (subsequently delivered where noted above)
 
 - Login or registration
 - AI opponent

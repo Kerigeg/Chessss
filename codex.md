@@ -37,14 +37,7 @@ Build a deployable online chess website that starts with LAN-friendly two-player
 
 ## Current Stage
 
-Current stage: design and project foundation.
-
-Before substantial implementation begins, contributors should align on:
-
-- MVP scope
-- architecture boundaries
-- delivery phases
-- shared conventions
+Current stage: playable single-server LAN/small-community platform with authentication, computer play, administration, analysis, persistent ratings, leaderboards, profiles, and Swiss tournaments. Active rooms remain in memory; durable community data uses local versioned files pending a future transactional-database migration.
 
 ## MVP Definition
 

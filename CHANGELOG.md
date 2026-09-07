@@ -13,10 +13,23 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ### Changed
 
+- Allowed the Owner role to warn, suspend, sign out, ban, and unban Admin, Moderator, and Analyst accounts while keeping Owner accounts protected.
 - Updated the repository collaboration guidelines to allow informal language, including profanity, in contributor discussions.
 
 ### Added
 
+- Added automatic rated and casual matchmaking queues grouped by time control, with cancellation, disconnect cleanup, duplicate-search protection, and random color assignment.
+- Added persistent Bullet, Blitz, and Rapid Elo ratings with provisional K-factors, peak/streak statistics, rating history, exact auditable reversals, duplicate-result protection, and repeated-opponent limits.
+- Added rated/casual human-room selection, starting ratings, win/draw/loss estimates, post-game rating results, resign support, public leaderboards, searchable player profiles, and eligibility filtering.
+- Added persistent server-managed Swiss tournaments for 4–32 players with player-submitted private drafts, admin/moderator approval, registration, check-in, deterministic pairings, color balancing, one-time byes, Buchholz standings, assigned rooms, spectator access, forfeits, result correction, pause/resume, and restart recovery.
+- Added repeated very-short resignation flags for manual administrator review without automatic punishment.
+
+- Added a live administrator control center with server health, online users, active/completed games, analysis jobs, activity feed, alerts, operational charts, search, and a command palette.
+- Added role-based Owner, Admin, Moderator, and Analyst permissions; warnings, temporary suspension, forced sign-out, permanent bans, private notes, and persistent user game history.
+- Added read-only live and archived-game spectating, PGN export, admin analysis, reasoned game cancellation/result decisions, and displaced-player reconnection.
+- Added a persistent fair-play review queue with accuracy, average centipawn loss, engine-move similarity, timing signals, and explicit human approval or rejection without automatic bans.
+- Added persistent site controls for announcements, maintenance mode, feature flags, time controls, computer levels, and analysis strength/timeouts.
+- Added append-only administrator audit records, individual admin-password/TOTP enrollment, role assignment, and inactive admin-session expiry.
 - Added a separate administrator login portal using a username and server-validated admin code, plus the existing account moderation panel.
 - Added an administrator action to unban accounts and allow them to sign in again.
 - Added server-side post-game Stockfish analysis with per-move labels, evaluations, and suggested best moves.
@@ -38,6 +51,14 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ### Fixed
 
+- Prevented ordinary player credentials from creating administrator privileges, moved password hashing off the server event loop, and added per-address authentication throttling.
+- Prioritized computer moves between per-position analysis tasks so long reviews no longer monopolize Stockfish.
+- Made administrator reconnects restore the target player's room state, color, and seat token.
+- Added unique identities for every game and archived rematch, prevented joins or result overrides after administrative completion, and kept archived selections distinct from active rematches.
+- Broadcast live user-list changes to every administrator, displayed administrator-decided winners correctly, rejected repeated fair-play decisions, and fail safely on corrupted game history.
+- Made administrator warnings visible to online players immediately and to offline players at their next sign-in, and corrected the spectator board to enforce eight equal rows and columns.
+- Preserved the banned-account notice when the server force-disconnects a moderated player, and added visible timeout feedback for Ban and Unban actions.
+- Fixed post-game analysis failing after computer games by sharing one serialized Stockfish runtime, and by handling checkmate or draw positions without asking the engine for another move.
 - Fixed intentional sign-out or room departure leaving a stale player seat that prevented a new login from joining the room.
 - Fixed the chessboard grid so every rank and file retains equal dimensions even when a rank has no pieces.
 - Added an explicit in-room restart action after a checkmate or draw, resetting the game for both players while preserving the room and colors.
@@ -48,4 +69,5 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 - Current agreed MVP excludes login, AI, matchmaking, and rankings.
 - First deployment target is a single-computer setup accessible over a local area network.
-- Active room state is intentionally in-memory for the MVP; a process restart clears rooms.
+- Active room state remains in memory, while completed-game history, audit records, fair-play reviews, user accounts, and site configuration persist locally.
+- Ratings and tournaments persist in versioned JSON files with atomic replacement; a transactional database remains the required migration path for public or multi-server deployment.

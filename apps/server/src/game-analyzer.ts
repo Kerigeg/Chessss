@@ -1,16 +1,6 @@
-import { createRequire } from "node:module";
 import { Chess } from "chess.js";
 import type { ChessGameState, GameAnalysis, MoveAnalysis, MoveLabel } from "@chessss/shared";
-
-const require = createRequire(import.meta.url);
-const ANALYSIS_TIME_MS = 120;
-
-interface StockfishEngine {
-  listener: (line: string) => void;
-  sendCommand(command: string): void;
-}
-
-type StockfishFactory = (flavor: string) => Promise<StockfishEngine>;
+import { sharedStockfishRuntime, type StockfishEngine, type StockfishRuntime } from "./stockfish-runtime.js";
 
 interface PositionAnalysis {
   scoreCp: number;
@@ -27,18 +17,19 @@ export function labelForLoss(loss: number, isBestMove: boolean): MoveLabel {
 }
 
 export class GameAnalyzer {
-  private engine: Promise<StockfishEngine> | null = null;
-  private queue: Promise<void> = Promise.resolve();
+  private analysisTimeMs = 120;
+  constructor(private readonly runtime: StockfishRuntime = sharedStockfishRuntime) {}
 
-  analyze(game: ChessGameState): Promise<GameAnalysis> {
-    const next = this.queue.then(() => this.analyzeNow(game));
-    this.queue = next.then(() => undefined, () => undefined);
-    return next;
-  }
+  configure(analysisTimeMs: number) { this.analysisTimeMs = analysisTimeMs; }
 
-  private async analyzeNow(game: ChessGameState): Promise<GameAnalysis> {
+  async analyze(game: ChessGameState): Promise<GameAnalysis> {
     const positions: PositionAnalysis[] = [];
-    for (const fen of game.positionHistory) positions.push(await this.inspect(fen));
+    for (const fen of game.positionHistory) {
+      positions.push(await this.runtime.run(async (engine) => {
+        await this.configureEngine(engine);
+        return this.inspect(engine, fen);
+      }));
+    }
     const moves: MoveAnalysis[] = game.moves.map((move, index) => {
       const before = positions[index]!;
       const after = positions[index + 1]!;
@@ -57,11 +48,24 @@ export class GameAnalyzer {
     return { moves };
   }
 
-  private async inspect(fen: string): Promise<PositionAnalysis> {
-    const engine = await this.getEngine();
+  private async configureEngine(engine: StockfishEngine) {
+    engine.sendCommand("setoption name UCI_LimitStrength value false");
+    engine.sendCommand("setoption name Skill Level value 20");
+    await this.runtime.sendAndWait(engine, "isready", (line) => line === "readyok");
+  }
+
+  private async inspect(engine: StockfishEngine, fen: string): Promise<PositionAnalysis> {
+    const position = new Chess(fen);
+    if (position.isGameOver()) {
+      return {
+        scoreCp: position.isCheckmate() ? -10_000 : 0,
+        bestMove: "(none)",
+      };
+    }
+
     engine.sendCommand(`position fen ${fen}`);
     let scoreCp = 0;
-    const bestMove = await this.sendAndWait(engine, `go movetime ${ANALYSIS_TIME_MS}`, (line) => {
+    const bestMove = await this.runtime.sendAndWait(engine, `go movetime ${this.analysisTimeMs}`, (line) => {
       const scoreMatch = line.match(/\bscore cp (-?\d+)/);
       if (scoreMatch) scoreCp = Number(scoreMatch[1]);
       const mateMatch = line.match(/\bscore mate (-?\d+)/);
@@ -82,28 +86,4 @@ export class GameAnalyzer {
     }
   }
 
-  private async getEngine(): Promise<StockfishEngine> {
-    if (!this.engine) {
-      const stockfish = require("stockfish") as StockfishFactory;
-      this.engine = stockfish("lite-single").then(async (engine) => {
-        await this.sendAndWait(engine, "uci", (line) => line === "uciok");
-        await this.sendAndWait(engine, "isready", (line) => line === "readyok");
-        return engine;
-      });
-    }
-    return this.engine;
-  }
-
-  private sendAndWait(engine: StockfishEngine, command: string, matches: (line: string) => boolean): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Stockfish timed out while running ${command}.`)), 15_000);
-      timeout.unref();
-      engine.listener = (line) => {
-        if (!matches(line)) return;
-        clearTimeout(timeout);
-        resolve(line);
-      };
-      engine.sendCommand(command);
-    });
-  }
 }

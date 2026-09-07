@@ -10,9 +10,9 @@ Chessss is a server-authoritative chess application for local-area-network multi
 
 ### Features
 
-- LAN game rooms for two human players, with room-code joining and basic reconnect support.
+- LAN game rooms for two human players, with automatic rated/casual matchmaking by time control, private room-code joining, cancellation, and reconnect support.
 - Manual username/password sign-up and sign-in. Passwords are salted and hashed; browser sessions restore after a refresh.
-- Separate administrator login using a username and admin code, with account listing, ban, and unban controls. The local default code is `KV99` and can be overridden with `ADMIN_CODE`.
+- A live role-based administrator control center for users, games, analysis jobs, audit activity, fair-play reviews, website controls, alerts, trends, and read-only spectating. Existing installations can use the legacy bootstrap code once, then enroll each administrator with an individual salted password and TOTP authenticator code.
 - Server-validated standard chess: legal moves, promotion, check, checkmate, stalemate, supported draws, and move history.
 - Server-authoritative clocks and timeout losses.
 - Computer play as White versus a Black computer controller:
@@ -26,6 +26,11 @@ Chessss is a server-authoritative chess application for local-area-network multi
 - End-of-game choices to play a rematch in the same room or return to the home screen.
 - Finished games can be replayed move by move and exported as PGN.
 - Finished games can be analyzed with Stockfish to show basic move labels, evaluation, and a suggested best move. Analysis is unavailable during live games.
+- Completed games are archived locally for account history, later spectating, PGN export, and administrator analysis.
+- Human rooms can be **Rated** or **Casual**. Rated games use independent Bullet (under 3 minutes), Blitz (3–7 minutes), and Rapid (over 7 through 30 minutes) Elo pools, with provisional ratings for the first ten games.
+- Public pool leaderboards require five qualifying games and recent activity. Player profiles show ratings, peaks, records, recent rating transactions, and tournament history.
+- Persistent 4–32 player Swiss tournaments support player-submitted private drafts, admin/moderator approval and permanent deletion, creator-managed event lifecycles, registration, optional check-in, 3–7 rounds, automatic assigned rooms, live standings, Buchholz tie-breaks, byes, spectating, forfeits, pause/resume, and restart recovery.
+- Competitive state is server-authoritative and idempotent: duplicate completion events cannot award Elo or tournament points twice, and administrative forfeits never affect Elo.
 
 ### Prerequisites
 
@@ -97,7 +102,8 @@ docs/adr              Architecture decisions
 
 - Room state is in memory; restarting the server removes active rooms.
 - User accounts are stored locally in `data/users.json`; this LAN-focused credential storage is not yet production-grade.
-- No persistent game history, matchmaking, or spectator mode yet.
+- Active rooms still live in memory, but completed games, moderation audit records, fair-play reviews, accounts, and site configuration persist locally.
+- Ratings and tournaments use versioned, atomically replaced JSON files. This is suitable for the current LAN/small-community deployment, but a transactional database is required before public, multi-server operation.
 - A computer game currently assigns the human to White.
 - This repository provides development/LAN startup, not a production deployment configuration.
 
@@ -117,7 +123,7 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 
 - 局域网双人房间：通过六位房间码加入，并提供基础断线重连。
 - 支持手动用户名/密码注册和登录。密码会加盐哈希处理，刷新页面后会自动恢复浏览器会话。
-- 提供独立管理员登录入口，通过用户名和管理员代码进入账号管理、封禁与解封界面。本地默认代码为 `KV99`，可通过 `ADMIN_CODE` 覆盖。
+- 提供实时、分角色的管理员控制中心，包含用户和棋局管理、分析任务、审计活动、公平竞赛审核、网站设置、告警、趋势图与只读观战。旧安装可先使用一次旧管理员代码，再为每位管理员启用独立加盐密码与 TOTP 验证器。
 - 服务端判定标准国际象棋规则：合法走子、升变、将军、将死、逼和、支持的和棋与走子记录。
 - 服务端权威计时与超时判负。
 - 人机对战中人类执白、电脑执黑，提供五档难度：
@@ -131,6 +137,11 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 - 对局结束后可选择同一房间再战，或返回首页。
 - 对局结束后可逐步回放，并下载 PGN 棋谱。
 - 对局结束后可使用 Stockfish 进行基础复盘，查看走子标签、局面评价和建议最佳着法；进行中的对局不会提供分析。
+- 已结束棋局会保存在本机，可用于账号历史、后续观战、PGN 导出和管理员分析。
+- 真人房间可选择 **Rated（计分）** 或 **Casual（休闲）**。计分对局分为 Bullet（少于 3 分钟）、Blitz（3–7 分钟）和 Rapid（大于 7 分钟且不超过 30 分钟）三个独立 Elo 分池，前 10 局为暂定等级分。
+- 各分池公开排行榜要求至少完成 5 局合资格对局并保持近期活跃；棋手档案包含当前/峰值等级分、战绩、近期分数记录与锦标赛历史。
+- 支持持久化的 4–32 人 Swiss 锦标赛：报名、可选 check-in、3–7 轮、自动分配房间、实时排名、Buchholz 同分判定、轮空、观战、弃权与管理员全生命周期控制。
+- 等级分和锦标赛结果均由服务端权威处理且具有幂等性；重复终局事件不会重复加分，管理员判定的弃权不会改变 Elo。
 
 ### 环境要求
 
@@ -202,7 +213,8 @@ docs/adr              架构决策记录
 
 - 房间状态只保存在内存中，服务端重启会清空进行中的房间。
 - 用户账号保存于本机的 `data/users.json`；这种面向局域网的凭据存储尚未达到生产环境级别。
-- 暂不包含持久化棋局历史、匹配或观战。
+- 进行中的房间仍保存在内存中；已结束棋局、管理审计、公平竞赛审核、账号和网站设置会持久保存在本机。
+- 等级分与锦标赛使用带版本号、原子替换写入的 JSON 文件。这适合当前局域网/小型社区版本；公开部署或多服务器运行前应迁移到事务型数据库。
 - 人机对局中人类当前固定为白方。
 - 仓库提供的是开发与局域网启动方式，不包含生产部署配置。
 

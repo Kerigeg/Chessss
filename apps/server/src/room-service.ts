@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { applyMove, createGame, snapshotGame } from "@chessss/chess-core";
-import type { AnalyzeGameRequest, ChessColor, ChessGameState, ComputerLevel, CreateComputerRoomRequest, GameClock, GameMode, GameResult, JoinRoomRequest, JoinRoomResponse, LeaveRoomRequest, MoveRequest, RestartGameRequest, RoomSnapshot } from "@chessss/shared";
+import type { AdminGameSummary, AnalyzeGameRequest, ChessColor, ChessGameState, ComputerLevel, CreateComputerRoomRequest, CreateHumanRoomRequest, GameClock, GameMode, GameResult, JoinRoomRequest, JoinRoomResponse, LeaveRoomRequest, MoveRequest, RatedGameOutcome, RatingPool, ResignGameRequest, RestartGameRequest, RoomSnapshot } from "@chessss/shared";
 import { StockfishComputer, type ComputerMove, type ComputerMoveProvider } from "./computer-player.js";
+import { ratingPoolForTimeControl } from "./rating-service.js";
 
 const INITIAL_TIME_MS = 60_000;
-const ALLOWED_COMPUTER_TIME_CONTROLS_MS = new Set([60_000, 180_000, 300_000, 600_000, 1_800_000, 2_700_000]);
 const LOW_TIME_THRESHOLD_MS = 20_000;
 const QUICK_MOVE_WINDOW_MS = 2_000;
 const QUICK_MOVE_BONUS_MS = 2_000;
@@ -14,10 +14,12 @@ interface PlayerSession {
   token: string;
   socketId: string | null;
   kind: "human" | "computer";
+  username: string;
 }
 
 interface Room {
   id: string;
+  gameInstanceId: string;
   mode: GameMode;
   computerLevel: ComputerLevel | null;
   initialTimeMs: number;
@@ -28,12 +30,24 @@ interface Room {
   forcedResult: GameResult | null;
   timeout: NodeJS.Timeout | null;
   lastMove: RoomSnapshot["lastMove"];
+  startedAt: string;
+  updatedAt: string;
+  moveTimingsMs: number[];
+  access: "rated" | "casual";
+  ratingPool: RatingPool | null;
+  startingRatings: Partial<Record<ChessColor, number>>;
+  ratingEstimates: Partial<Record<ChessColor, { win: number; draw: number; loss: number }>>;
+  ratingResult?: RatedGameOutcome;
+  tournamentId?: string;
+  tournamentRound?: number;
+  tournamentPaused: boolean;
 }
 
 export class RoomError extends Error {}
 
 export class RoomService {
   private readonly rooms = new Map<string, Room>();
+  private allowedComputerTimeControlsMs = new Set([60_000, 180_000, 300_000, 600_000, 1_800_000, 2_700_000]);
 
   constructor(
     private readonly onRoomUpdated?: (room: RoomSnapshot) => void,
@@ -41,36 +55,55 @@ export class RoomService {
     private readonly computer: ComputerMoveProvider = new StockfishComputer(),
   ) {}
 
-  createRoom(socketId: string): JoinRoomResponse {
+  configureTimeControls(values: number[]) {
+    this.allowedComputerTimeControlsMs = new Set(values);
+  }
+
+  createRoom(socketId: string, username = "Guest", request: CreateHumanRoomRequest = { access: "casual", initialTimeMs: INITIAL_TIME_MS }, startingRating = 1200): JoinRoomResponse {
+    if (!this.allowedComputerTimeControlsMs.has(request.initialTimeMs)) throw new RoomError("Choose one of the available time controls.");
+    const pool = ratingPoolForTimeControl(request.initialTimeMs);
+    if (request.access === "rated" && !pool) throw new RoomError("Rated games must use a Bullet, Blitz, or Rapid time control of 30 minutes or less.");
     let id = this.roomCode();
     while (this.rooms.has(id)) id = this.roomCode();
 
-    const white = this.newPlayer("white", socketId);
+    const white = this.newPlayer("white", socketId, username);
+    const createdAt = new Date(this.now()).toISOString();
     const room: Room = {
       id,
+      gameInstanceId: randomUUID(),
       mode: "human",
       computerLevel: null,
-      initialTimeMs: INITIAL_TIME_MS,
+      initialTimeMs: request.initialTimeMs,
       aiThinking: false,
       game: createGame(),
       players: new Map([["white", white]]),
-      clock: this.newClock(),
+      clock: this.newClock(request.initialTimeMs),
       forcedResult: null,
       timeout: null,
       lastMove: null,
+      startedAt: createdAt,
+      updatedAt: createdAt,
+      moveTimingsMs: [],
+      access: request.access,
+      ratingPool: request.access === "rated" ? pool : null,
+      startingRatings: { white: startingRating },
+      ratingEstimates: {},
+      tournamentPaused: false,
     };
     this.rooms.set(id, room);
     return this.joinResponse(room, white);
   }
 
-  createComputerRoom(request: CreateComputerRoomRequest, socketId: string): JoinRoomResponse {
-    if (!ALLOWED_COMPUTER_TIME_CONTROLS_MS.has(request.initialTimeMs)) throw new RoomError("Choose one of the available computer game time controls.");
+  createComputerRoom(request: CreateComputerRoomRequest, socketId: string, username = "Guest"): JoinRoomResponse {
+    if (!this.allowedComputerTimeControlsMs.has(request.initialTimeMs)) throw new RoomError("Choose one of the available computer game time controls.");
     let id = this.roomCode();
     while (this.rooms.has(id)) id = this.roomCode();
 
-    const white = this.newPlayer("white", socketId);
+    const white = this.newPlayer("white", socketId, username);
+    const createdAt = new Date(this.now()).toISOString();
     const room: Room = {
       id,
+      gameInstanceId: randomUUID(),
       mode: "computer",
       computerLevel: request.level,
       initialTimeMs: request.initialTimeMs,
@@ -81,36 +114,71 @@ export class RoomService {
       forcedResult: null,
       timeout: null,
       lastMove: null,
+      startedAt: createdAt,
+      updatedAt: createdAt,
+      moveTimingsMs: [],
+      access: "casual",
+      ratingPool: null,
+      startingRatings: {},
+      ratingEstimates: {},
+      tournamentPaused: false,
     };
     this.rooms.set(id, room);
     this.resumeClock(room);
     return this.joinResponse(room, white);
   }
 
-  joinRoom(request: JoinRoomRequest, socketId: string): JoinRoomResponse {
+  createTournamentRoom(request: { tournamentId: string; round: number; white: string; black: string; initialTimeMs: number; access: "rated" | "casual"; startingRatings?: Partial<Record<ChessColor, number>> }): RoomSnapshot {
+    if (!this.allowedComputerTimeControlsMs.has(request.initialTimeMs)) throw new RoomError("Choose one of the available time controls.");
+    const pool = ratingPoolForTimeControl(request.initialTimeMs);
+    if (request.access === "rated" && !pool) throw new RoomError("Rated tournament games must use a Bullet, Blitz, or Rapid time control.");
+    let id = this.roomCode();
+    while (this.rooms.has(id)) id = this.roomCode();
+    const createdAt = new Date(this.now()).toISOString();
+    const room: Room = {
+      id, gameInstanceId: randomUUID(), mode: "human", computerLevel: null, initialTimeMs: request.initialTimeMs, aiThinking: false,
+      game: createGame(), players: new Map([
+        ["white", this.newPlayer("white", null, request.white)],
+        ["black", this.newPlayer("black", null, request.black)],
+      ]), clock: this.newClock(request.initialTimeMs), forcedResult: null, timeout: null, lastMove: null,
+      startedAt: createdAt, updatedAt: createdAt, moveTimingsMs: [], access: request.access,
+      ratingPool: request.access === "rated" ? pool : null, startingRatings: structuredClone(request.startingRatings ?? {}), ratingEstimates: {},
+      tournamentId: request.tournamentId, tournamentRound: request.round,
+      tournamentPaused: false,
+    };
+    this.rooms.set(id, room);
+    return this.snapshot(room);
+  }
+
+  joinRoom(request: JoinRoomRequest, socketId: string, username = "Guest", startingRating = 1200): JoinRoomResponse {
     const room = this.getRoom(request.roomId);
     const existing = request.playerToken
       ? [...room.players.values()].find((player) => player.token === request.playerToken)
-      : undefined;
+      : room.tournamentId ? [...room.players.values()].find((player) => player.username.toLowerCase() === username.toLowerCase()) : undefined;
 
     if (existing) {
       existing.socketId = socketId;
+      if (!room.tournamentId) existing.username = username;
+      this.touch(room);
       this.resumeClock(room);
       return this.joinResponse(room, existing);
     }
 
-    if (room.game.isGameOver()) throw new RoomError("This game has already finished.");
+    if (this.isFinished(room)) throw new RoomError("This game has already finished.");
     if (room.players.size >= 2) throw new RoomError("This room already has two players.");
 
     const color: ChessColor = room.players.has("white") ? "black" : "white";
-    const joiningPlayer = this.newPlayer(color, socketId);
+    const joiningPlayer = this.newPlayer(color, socketId, username);
     room.players.set(color, joiningPlayer);
+    if (room.access === "rated") room.startingRatings[color] = startingRating;
+    this.touch(room);
     this.resumeClock(room);
     return this.joinResponse(room, joiningPlayer);
   }
 
   move(request: MoveRequest, socketId: string): RoomSnapshot {
     const room = this.getRoom(request.roomId);
+    if (room.tournamentPaused) throw new RoomError("This tournament is paused.");
     const player = [...room.players.values()].find((candidate) => candidate.token === request.playerToken);
     if (!player || player.kind !== "human" || player.socketId !== socketId) throw new RoomError("You are not an active player in this room.");
     if (!this.arePlayersConnected(room)) {
@@ -130,6 +198,8 @@ export class RoomService {
 
     try {
       room.lastMove = applyMove(room.game, request);
+      room.moveTimingsMs.push(Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0);
+      this.touch(room);
     } catch {
       this.resumeClock(room);
       throw new RoomError("That move is not legal.");
@@ -149,14 +219,46 @@ export class RoomService {
     const room = this.getRoom(request.roomId);
     const player = [...room.players.values()].find((candidate) => candidate.token === request.playerToken);
     if (!player || player.kind !== "human" || player.socketId !== socketId) throw new RoomError("You are not an active player in this room.");
+    if (room.tournamentId) throw new RoomError("Tournament games cannot be rematched.");
     if (!this.isFinished(room)) throw new RoomError("The current game has not finished yet.");
 
     room.game.reset();
+    room.gameInstanceId = randomUUID();
     room.forcedResult = null;
     this.clearTimeout(room);
     room.clock = this.newClock(room.initialTimeMs);
     this.resumeClock(room);
     room.lastMove = null;
+    room.moveTimingsMs = [];
+    room.ratingResult = undefined;
+    room.ratingEstimates = {};
+    room.startedAt = new Date(this.now()).toISOString();
+    this.touch(room);
+    return this.snapshot(room);
+  }
+
+  resign(request: ResignGameRequest, socketId: string): RoomSnapshot {
+    const room = this.getRoom(request.roomId);
+    const player = [...room.players.values()].find((candidate) => candidate.token === request.playerToken);
+    if (!player || player.kind !== "human" || player.socketId !== socketId) throw new RoomError("You are not an active player in this room.");
+    if (this.isFinished(room)) throw new RoomError("This game has already finished.");
+    this.pauseClock(room);
+    room.forcedResult = { kind: "resignation", winner: player.color === "white" ? "black" : "white" };
+    this.touch(room);
+    return this.snapshot(room);
+  }
+
+  configureRatings(roomId: string, ratings: Partial<Record<ChessColor, number>>, estimates: Partial<Record<ChessColor, { win: number; draw: number; loss: number }>>) {
+    const room = this.getRoom(roomId);
+    if (room.game.history().length > 0) throw new RoomError("Rating details cannot change after the first move.");
+    room.startingRatings = { ...room.startingRatings, ...ratings };
+    room.ratingEstimates = structuredClone(estimates);
+  }
+
+  setRatingResult(roomId: string, gameId: string, result: RatedGameOutcome): RoomSnapshot {
+    const room = this.getRoom(roomId);
+    if (room.gameInstanceId !== gameId) throw new RoomError("The rating result belongs to a different game.");
+    room.ratingResult = structuredClone(result);
     return this.snapshot(room);
   }
 
@@ -166,7 +268,9 @@ export class RoomService {
     if (!player || player.kind !== "human" || player.socketId !== socketId) throw new RoomError("You are not an active player in this room.");
 
     this.pauseClock(room);
-    room.players.delete(player.color);
+    if (room.tournamentId) player.socketId = null;
+    else room.players.delete(player.color);
+    this.touch(room);
     return this.snapshot(room);
   }
 
@@ -176,9 +280,10 @@ export class RoomService {
     if (snapshotGame(room.game).turn !== "black") return null;
 
     room.aiThinking = true;
+    const thinkingStartedAt = this.now();
     try {
       const move = await this.computer.chooseMove(room.game.fen(), room.computerLevel);
-      return this.applyComputerMove(room, move);
+      return this.applyComputerMove(room, move, this.now() - thinkingStartedAt);
     } finally {
       room.aiThinking = false;
     }
@@ -190,6 +295,7 @@ export class RoomService {
       const player = [...room.players.values()].find((candidate) => candidate.socketId === socketId);
       if (player) {
         player.socketId = null;
+        this.touch(room);
         this.pauseClock(room);
         affected.push(this.snapshot(room));
       }
@@ -199,6 +305,106 @@ export class RoomService {
 
   snapshotById(roomId: string): RoomSnapshot {
     return this.snapshot(this.getRoom(roomId));
+  }
+
+  allSnapshots(): RoomSnapshot[] { return [...this.rooms.values()].map((room) => this.snapshot(room)); }
+
+  isSocketInUnfinishedRoom(socketId: string): boolean {
+    return [...this.rooms.values()].some((room) => !this.isFinished(room) && [...room.players.values()].some((player) => player.socketId === socketId));
+  }
+
+  setTournamentPaused(tournamentId: string, paused: boolean): RoomSnapshot[] {
+    const affected: RoomSnapshot[] = [];
+    for (const room of this.rooms.values()) {
+      if (room.tournamentId !== tournamentId || this.isFinished(room)) continue;
+      room.tournamentPaused = paused;
+      if (paused) this.pauseClock(room);
+      else this.resumeClock(room);
+      this.touch(room);
+      affected.push(this.snapshot(room));
+    }
+    return affected;
+  }
+
+  tournamentRooms(tournamentId: string): RoomSnapshot[] {
+    return [...this.rooms.values()].filter((room) => room.tournamentId === tournamentId).map((room) => this.snapshot(room));
+  }
+
+  adminGames(): AdminGameSummary[] {
+    return [...this.rooms.values()]
+      .map((room) => {
+        const snapshot = this.snapshot(room);
+        const name = (color: ChessColor) => room.players.get(color)?.username ?? "Open seat";
+        return {
+          gameId: room.gameInstanceId,
+          roomId: room.id,
+          mode: room.mode,
+          status: snapshot.status,
+          white: name("white"),
+          black: name("black"),
+          moveCount: snapshot.game.moves.length,
+          startedAt: room.startedAt,
+          updatedAt: room.updatedAt,
+          result: snapshot.game.result,
+          timeControlMs: room.initialTimeMs,
+        };
+      })
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  adminCancel(roomId: string): RoomSnapshot {
+    const room = this.getRoom(roomId);
+    if (this.isFinished(room)) throw new RoomError("This game has already finished.");
+    this.pauseClock(room);
+    room.forcedResult = { kind: "cancelled", winner: null };
+    this.touch(room);
+    return this.snapshot(room);
+  }
+
+  adminDeclareResult(roomId: string, winner: ChessColor | null): RoomSnapshot {
+    const room = this.getRoom(roomId);
+    if (this.isFinished(room)) throw new RoomError("This game has already finished.");
+    this.pauseClock(room);
+    room.forcedResult = { kind: "admin-decision", winner };
+    this.touch(room);
+    return this.snapshot(room);
+  }
+
+  adminForfeit(roomId: string, winner: ChessColor | null): RoomSnapshot {
+    const room = this.getRoom(roomId);
+    if (this.isFinished(room)) throw new RoomError("This game has already finished.");
+    this.pauseClock(room);
+    room.forcedResult = { kind: "forfeit", winner };
+    this.touch(room);
+    return this.snapshot(room);
+  }
+
+  adminReconnect(roomId: string, username: string, socketId: string): JoinRoomResponse {
+    const room = this.getRoom(roomId);
+    const player = [...room.players.values()].find((candidate) => candidate.kind === "human" && candidate.username.toLowerCase() === username.toLowerCase());
+    if (!player) throw new RoomError("That user does not occupy a seat in this room.");
+    player.socketId = socketId;
+    this.touch(room);
+    this.resumeClock(room);
+    return this.joinResponse(room, player);
+  }
+
+  adminAnalysisGame(roomId: string): ChessGameState {
+    const room = this.getRoom(roomId);
+    const game = snapshotGame(room.game);
+    game.result = room.forcedResult ?? game.result;
+    return game;
+  }
+
+  adminPlayerColor(roomId: string, username: string): ChessColor {
+    const player = [...this.getRoom(roomId).players.values()].find((candidate) => candidate.username.toLowerCase() === username.toLowerCase());
+    if (!player || player.kind !== "human") throw new RoomError("That user did not play in this room.");
+    return player.color;
+  }
+
+  adminMoveTimings(roomId: string, username: string): number[] {
+    const color = this.adminPlayerColor(roomId, username);
+    return this.getRoom(roomId).moveTimingsMs.filter((_, index) => index % 2 === (color === "white" ? 0 : 1));
   }
 
   analysisGame(request: AnalyzeGameRequest, socketId: string): ChessGameState {
@@ -217,6 +423,7 @@ export class RoomService {
     const now = this.now();
     return {
       id: room.id,
+      gameInstanceId: room.gameInstanceId,
       mode: room.mode,
       computerLevel: room.computerLevel,
       timeControl: { initialTimeMs: room.initialTimeMs },
@@ -224,7 +431,7 @@ export class RoomService {
       players: (["white", "black"] as ChessColor[])
         .map((color) => room.players.get(color))
         .filter((player): player is PlayerSession => Boolean(player))
-        .map(({ color, socketId, kind }) => ({ color, connected: kind === "computer" || Boolean(socketId), kind })),
+        .map(({ color, socketId, kind, username }) => ({ color, connected: kind === "computer" || Boolean(socketId), kind, username })),
       game,
       clock: {
         whiteMs: this.remainingTime(room, "white", now),
@@ -233,6 +440,13 @@ export class RoomService {
         turnStartedAt: room.clock.turnStartedAt,
       },
       lastMove: room.lastMove,
+      access: room.access,
+      ratingPool: room.ratingPool,
+      startingRatings: structuredClone(room.startingRatings),
+      ratingEstimates: structuredClone(room.ratingEstimates),
+      ratingResult: room.ratingResult ? structuredClone(room.ratingResult) : undefined,
+      tournamentId: room.tournamentId,
+      tournamentRound: room.tournamentRound,
     };
   }
 
@@ -246,12 +460,12 @@ export class RoomService {
     return room;
   }
 
-  private newPlayer(color: ChessColor, socketId: string): PlayerSession {
-    return { color, socketId, token: randomUUID(), kind: "human" };
+  private newPlayer(color: ChessColor, socketId: string | null, username: string): PlayerSession {
+    return { color, socketId, token: randomUUID(), kind: "human", username };
   }
 
   private newComputer(color: ChessColor): PlayerSession {
-    return { color, socketId: null, token: randomUUID(), kind: "computer" };
+    return { color, socketId: null, token: randomUUID(), kind: "computer", username: "Computer" };
   }
 
   private roomCode(): string {
@@ -270,13 +484,15 @@ export class RoomService {
     return room.forcedResult !== null || room.game.isGameOver();
   }
 
-  private applyComputerMove(room: Room, move: ComputerMove): RoomSnapshot {
+  private applyComputerMove(room: Room, move: ComputerMove, elapsedMs: number): RoomSnapshot {
     const now = this.now();
     if (this.expireIfNeeded(room, now) || this.isFinished(room)) return this.snapshot(room);
 
     this.pauseClock(room, now);
     try {
       room.lastMove = applyMove(room.game, move);
+      room.moveTimingsMs.push(Math.max(0, elapsedMs));
+      this.touch(room);
     } catch {
       this.resumeClock(room, now);
       throw new RoomError("Computer selected an invalid move.");
@@ -308,7 +524,7 @@ export class RoomService {
   }
 
   private resumeClock(room: Room, now = this.now()) {
-    if (this.isFinished(room) || !this.arePlayersConnected(room) || room.clock.activeColor === null || room.clock.turnStartedAt !== null) return;
+    if (this.isFinished(room) || room.tournamentPaused || !this.arePlayersConnected(room) || room.clock.activeColor === null || room.clock.turnStartedAt !== null) return;
     room.clock.turnStartedAt = now;
     this.scheduleTimeout(room);
   }
@@ -321,6 +537,7 @@ export class RoomService {
     room.clock[key] = 0;
     room.clock.turnStartedAt = null;
     room.forcedResult = { kind: "timeout", winner: activeColor === "white" ? "black" : "white" };
+    this.touch(room);
     this.clearTimeout(room);
     this.onRoomUpdated?.(this.snapshot(room));
     return true;
@@ -340,5 +557,9 @@ export class RoomService {
   private clearTimeout(room: Room) {
     if (room.timeout) clearTimeout(room.timeout);
     room.timeout = null;
+  }
+
+  private touch(room: Room) {
+    room.updatedAt = new Date(this.now()).toISOString();
   }
 }

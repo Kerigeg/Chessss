@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyMove, createGame, snapshotGame } from "@chessss/chess-core";
+import { StockfishComputer } from "../src/computer-player.js";
 import { GameAnalyzer, labelForLoss } from "../src/game-analyzer.js";
 
 describe("move analysis labels", () => {
@@ -12,13 +13,23 @@ describe("move analysis labels", () => {
     expect(labelForLoss(251, false)).toBe("blunder");
   });
 
-  it("returns one analysis entry for each move", async () => {
-    const game = createGame();
-    applyMove(game, { from: "e2", to: "e4" });
-    applyMove(game, { from: "e7", to: "e5" });
+  it("returns one analysis entry per move for a completed checkmate", async () => {
+    const opening = snapshotGame(createGame());
+    const computerMove = await new StockfishComputer().chooseMove(opening.fen, "stockfish");
+    expect(computerMove.from).toMatch(/^[a-h][1-8]$/);
 
-    const analysis = await new GameAnalyzer().analyze(snapshotGame(game));
-    expect(analysis.moves).toHaveLength(2);
+    const game = createGame();
+    applyMove(game, { from: "f2", to: "f3" });
+    applyMove(game, { from: "e7", to: "e5" });
+    applyMove(game, { from: "g2", to: "g4" });
+    applyMove(game, { from: "d8", to: "h4" });
+
+    const snapshot = snapshotGame(game);
+    expect(snapshot.result?.kind).toBe("checkmate");
+
+    const analysis = await new GameAnalyzer().analyze(snapshot);
+    expect(analysis.moves).toHaveLength(4);
     expect(analysis.moves[0]).toMatchObject({ moveIndex: 0, bestMoveSan: expect.any(String) });
-  }, 20_000);
+    expect(analysis.moves.at(-1)?.evaluationCp).toBe(-10_000);
+  }, 25_000);
 });

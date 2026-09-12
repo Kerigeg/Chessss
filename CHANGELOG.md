@@ -18,6 +18,10 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ### Added
 
+- Added Magic mode to player, replay, administrator spectator, and tournament spectator boards: an immersive orthographic 2.5D scene with 36 locally generated piece models across Astral, Sovereign, and Neon collections, independent saved skin choices for each side, move trails, capture bursts, check indicators, and legal destination markers.
+- Kept Magic play on the existing authoritative server command path, including promotion and live clocks. A modal focus boundary requires exiting Magic before navigation, analysis, replay controls, or moderation; spectators remain read-only. Added keyboard navigation, reduced-motion controls, responsive layouts, lazy 3D loading, and a recoverable WebGL failure state.
+- Added regression coverage for castling, en passant, underpromotion, reconnect/replay transitions, pinned-piece destinations, skin preference validation, and all procedural models. No server protocol or persistent game-data migration is required.
+
 - Added automatic rated and casual matchmaking queues grouped by time control, with cancellation, disconnect cleanup, duplicate-search protection, and random color assignment.
 - Added persistent Bullet, Blitz, and Rapid Elo ratings with provisional K-factors, peak/streak statistics, rating history, exact auditable reversals, duplicate-result protection, and repeated-opponent limits.
 - Added rated/casual human-room selection, starting ratings, win/draw/loss estimates, post-game rating results, resign support, public leaderboards, searchable player profiles, and eligibility filtering.

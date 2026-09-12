@@ -3,6 +3,7 @@ import { io, type Socket } from "socket.io-client";
 import type { AdminDashboard, AdminGameSummary, AdminLoginRequest, AdminSiteConfig, AdminUserActionRequest, AdminUserProfile, AdminUserSummary, AuthResponse, AuthUser, ChessColor, ComputerLevel, CreateComputerRoomRequest, CreateHumanRoomRequest, CredentialsRequest, GameAnalysis, JoinRoomResponse, MoveAnalysis, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError, TournamentDetail, UserWarning } from "@chessss/shared";
 import { LeaderboardView, OwnProfileView } from "./RankingViews";
 import { TournamentAdminPanel, TournamentView } from "./TournamentViews";
+import MagicMode from "./MagicMode";
 
 const STORAGE_KEY = "chessss-player-session";
 const AUTH_STORAGE_KEY = "chessss-auth-session";
@@ -156,6 +157,7 @@ export function App() {
   const [accountWarnings, setAccountWarnings] = useState<UserWarning[]>([]);
   const [playerView, setPlayerView] = useState<"play" | "leaderboards" | "tournaments" | "profile">("play");
   const [humanAccess, setHumanAccess] = useState<CreateHumanRoomRequest["access"]>("rated");
+  const [magicTarget, setMagicTarget] = useState<"play" | "spectate" | null>(null);
   const [matchmaking, setMatchmaking] = useState<CreateHumanRoomRequest | null>(null);
 
   useEffect(() => {
@@ -293,6 +295,10 @@ export function App() {
     setReplayIndex(null);
     setAnalysis(null);
   }, [room?.id, room?.game.moves.length]);
+
+  useEffect(() => {
+    setMagicTarget(null);
+  }, [room?.id, room?.gameInstanceId, spectatedRoom?.id, user?.username]);
 
   const replayPosition = room && replayIndex !== null ? room.game.positionHistory[replayIndex] : undefined;
   const pieces = useMemo(() => room ? boardFromFen(replayPosition ?? room.game.fen) : new Map<string, string>(), [room, replayPosition]);
@@ -570,7 +576,7 @@ export function App() {
   }
 
   function submitMove(from: string, to: string, promotion?: "q" | "r" | "b" | "n") {
-    if (!room || !playerToken || !socket) return;
+    if (!room || !playerToken || !socket || !connected) return;
     const request: MoveRequest = { roomId: room.id, playerToken, from, to, promotion };
     socket.emit("game:move", request, (response: Ack<{ room: RoomSnapshot }>) => {
       if (hasError(response)) return setNotice(response.error.message);
@@ -657,7 +663,7 @@ export function App() {
   }
 
   function selectSquare(square: string) {
-    if (!room || !playerColor || !playerToken || !socket) return;
+    if (!room || !playerColor || !playerToken || !socket || !connected) return;
     const piece = pieces.get(square);
     const isOwnPiece = piece && (piece === piece.toUpperCase() ? playerColor === "white" : playerColor === "black");
     if (!selected) {
@@ -679,6 +685,8 @@ export function App() {
   const files = playerColor === "black" ? ["h", "g", "f", "e", "d", "c", "b", "a"] : ["a", "b", "c", "d", "e", "f", "g", "h"];
   const canModerate = user?.role === "owner" || user?.role === "admin" || user?.role === "moderator";
   const canAdminister = user?.role === "owner" || user?.role === "admin";
+
+  const magicRoom = magicTarget === "spectate" ? spectatedRoom : magicTarget === "play" ? room : null;
 
   return (
     <main>
@@ -795,6 +803,7 @@ export function App() {
             </section></div>}
             {spectatedRoom && <div className="profile-backdrop" onClick={() => setSpectatedRoom(null)}><section className="spectator-panel card" onClick={(event) => event.stopPropagation()}>
               <button className="profile-close" onClick={() => setSpectatedRoom(null)}>×</button><p className="eyebrow">READ-ONLY SPECTATOR</p><h2>Room {spectatedRoom.id}</h2>
+              <button className="magic-launch" onClick={() => setMagicTarget("spectate")}>✧ Enter Magic <span>沉浸式观战 ↗</span></button>
               <div className="spectator-layout"><div className="mini-board">{[8,7,6,5,4,3,2,1].flatMap((rank, row) => ["a","b","c","d","e","f","g","h"].map((file, column) => {
                 const square = `${file}${rank}`; const piece = spectatorPieces.get(square); const key = piece ? `${piece === piece.toUpperCase() ? "w" : "b"}${piece.toLowerCase()}` : "";
                 return <div className={(row + column) % 2 ? "dark" : "light"} key={square}>{piece && glyphs[key]}</div>;
@@ -862,6 +871,7 @@ export function App() {
       ) : (
         <section className="game-layout">
           <div className="board-card">
+            <button className="magic-launch" onClick={() => setMagicTarget("play")}>✧ Enter Magic <span>沉浸式 2.5D 棋盘 ↗</span></button>
             <div className="board" aria-label="Chess board">
               {ranks.flatMap((rank, row) => files.map((file, column) => {
                 const square = `${file}${rank}`;
@@ -915,7 +925,7 @@ export function App() {
           </aside>
         </section>
       )}
-      {pendingPromotion && <div className="promotion-backdrop" role="dialog" aria-modal="true" aria-label="Choose promotion piece">
+      {pendingPromotion && !magicRoom && <div className="promotion-backdrop" role="dialog" aria-modal="true" aria-label="Choose promotion piece">
         <div className="promotion card">
           <h2>Promote pawn</h2>
           <p>Choose the new piece.</p>
@@ -936,8 +946,28 @@ export function App() {
       </div>}
       {!user?.isAdmin && spectatedRoom && <div className="profile-backdrop" onClick={() => setSpectatedRoom(null)}><section className="spectator-panel card" onClick={(event) => event.stopPropagation()}>
         <button className="profile-close" onClick={() => setSpectatedRoom(null)}>×</button><p className="eyebrow">TOURNAMENT SPECTATOR</p><h2>Room {spectatedRoom.id}</h2>
+        <button className="magic-launch" onClick={() => setMagicTarget("spectate")}>✧ Enter Magic <span>沉浸式观战 ↗</span></button>
         <div className="spectator-layout"><div className="mini-board">{[8,7,6,5,4,3,2,1].flatMap((rank, row) => ["a","b","c","d","e","f","g","h"].map((file, column) => { const square = `${file}${rank}`; const piece = spectatorPieces.get(square); const key = piece ? `${piece === piece.toUpperCase() ? "w" : "b"}${piece.toLowerCase()}` : ""; return <div className={(row + column) % 2 ? "dark" : "light"} key={square}>{piece && glyphs[key]}</div>; }))}</div><div className="spectator-info"><p>{spectatedRoom.players.find((entry) => entry.color === "white")?.username} vs {spectatedRoom.players.find((entry) => entry.color === "black")?.username}</p><p>{resultText(spectatedRoom) ?? `${colorName(spectatedRoom.game.turn)} to move`} · {spectatedRoom.game.moves.length} moves</p><ol className="spectator-moves">{spectatedRoom.game.moves.map((move, index) => <li key={`${move.san}-${index}`}>{Math.floor(index / 2) + 1}{index % 2 ? "…" : "."} {move.san}</li>)}</ol></div></div>
       </section></div>}
+      {magicRoom && <MagicMode
+        key={`${magicTarget}:${magicRoom.id}:${magicRoom.gameInstanceId}`}
+        room={magicRoom}
+        fen={magicTarget === "play" ? replayPosition ?? magicRoom.game.fen : magicRoom.game.fen}
+        view={magicTarget === "play" ? playerColor ?? "white" : "white"}
+        readOnly={magicTarget === "spectate"}
+        reviewing={magicTarget === "play" && replayIndex !== null}
+        selected={magicTarget === "play" ? selected : null}
+        canMove={magicTarget === "play" && isYourTurn}
+        connected={connected}
+        notice={notice}
+        status={resultText(magicRoom) ?? (magicRoom.status === "waiting" ? "Waiting for opponent." : `${colorName(magicRoom.game.turn)} to move${magicRoom.game.isCheck ? " — check" : ""}${magicRoom.clock.activeColor === null && magicRoom.status === "active" ? " · clocks paused" : ""}.`)}
+        clocks={{ white: formatClock(remainingMilliseconds(magicRoom, "white", clockNow)), black: formatClock(remainingMilliseconds(magicRoom, "black", clockNow)) }}
+        promotion={magicTarget === "play" && pendingPromotion !== null}
+        onSquare={selectSquare}
+        onPromote={piece => { if (pendingPromotion) submitMove(pendingPromotion.from, pendingPromotion.to, piece); }}
+        onCancelPromotion={() => setPendingPromotion(null)}
+        onExit={() => setMagicTarget(null)}
+      />}
     </main>
   );
 }

@@ -65,6 +65,7 @@ Priority labels:
 - Clear move rejection feedback
 - Visible room join flow
 - Shareable room identifier or link
+- Login galaxy: moving the mouse without pressing stirs nearby stars along its path, with a gradual return to their orbit. Dragging rotates the view; pause and reduced-motion preferences disable hover animation, and reset clears the disturbance.
 
 ### Backend
 

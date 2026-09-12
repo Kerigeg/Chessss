@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { advanceGalaxyParticle, disturbGalaxyParticle, GalaxyHoverTrail } from "./galaxyDisturbance";
 import "./galaxy.css";
 
 const TAU = Math.PI * 2;
@@ -44,6 +45,7 @@ export function GalaxyBackground() {
         alpha: 0.55 + random() * 0.45,
         phase: random() * TAU,
         color: random() > 0.83 ? 2 : random() > 0.52 ? 1 : 0,
+        motion: { x: 0, y: 0, vx: 0, vy: 0 },
       };
     });
     const distantStars = Array.from({ length: 180 }, () => ({ x: random(), y: random(), size: 0.4 + random() * 1.1, alpha: 0.1 + random() * 0.45 }));
@@ -69,8 +71,13 @@ export function GalaxyBackground() {
     let lastTime = 0;
     let background: CanvasGradient;
     const moving = !paused && !reducedMotion;
+    const hover = new GalaxyHoverTrail();
+    const clearDisturbance = () => {
+      hover.clear();
+      for (const star of stars) star.motion.x = star.motion.y = star.motion.vx = star.motion.vy = 0;
+    };
 
-    const draw = () => {
+    const draw = (delta = 0) => {
       const mobile = width < 760;
       const centerX = width * (mobile ? 0.49 : 0.32);
       const centerY = height * (mobile ? 0.27 : 0.51);
@@ -81,6 +88,8 @@ export function GalaxyBackground() {
       const cosPitch = Math.cos(pitch);
       const sinYaw = Math.sin(yaw);
       const cosYaw = Math.cos(yaw);
+      const strokes = moving ? hover.consume() : [];
+      const brushRadius = Math.max(58, Math.min(110, scale * 0.23));
       context.globalAlpha = 1;
       context.globalCompositeOperation = "source-over";
       context.fillStyle = background;
@@ -102,8 +111,12 @@ export function GalaxyBackground() {
         const rotatedX = x * cosYaw + tiltedZ * sinYaw;
         const depth = -x * sinYaw + tiltedZ * cosYaw;
         const perspective = 3 / (3 - depth);
-        const screenX = centerX + (rotatedX * 0.9 - tiltedY * 0.435) * scale * perspective;
-        const screenY = centerY + (rotatedX * 0.435 + tiltedY * 0.9) * scale * perspective;
+        let screenX = centerX + (rotatedX * 0.9 - tiltedY * 0.435) * scale * perspective;
+        let screenY = centerY + (rotatedX * 0.435 + tiltedY * 0.9) * scale * perspective;
+        for (const stroke of strokes) disturbGalaxyParticle(star.motion, screenX, screenY, stroke, brushRadius);
+        advanceGalaxyParticle(star.motion, delta);
+        screenX += star.motion.x;
+        screenY += star.motion.y;
         const size = star.size * perspective * (mobile ? 0.8 : 1);
         context.globalAlpha = star.alpha * (0.78 + 0.22 * Math.sin(seconds * 0.65 + star.phase));
         if (star.size > 1.8) {
@@ -126,6 +139,7 @@ export function GalaxyBackground() {
     };
 
     const resize = () => {
+      clearDisturbance();
       width = canvas.clientWidth;
       height = canvas.clientHeight;
       const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -140,13 +154,15 @@ export function GalaxyBackground() {
     };
     const animate = (time: number) => {
       if (time - lastTime >= 1000 / 30) {
-        elapsedRef.current += lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0;
+        const delta = lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0;
+        elapsedRef.current += delta;
         lastTime = time;
-        draw();
+        draw(delta);
       }
       frame = requestAnimationFrame(animate);
     };
     const visibility = () => {
+      hover.clear();
       cancelAnimationFrame(frame);
       lastTime = 0;
       if (!document.hidden && moving) frame = requestAnimationFrame(animate);
@@ -154,12 +170,20 @@ export function GalaxyBackground() {
     let drag: { id: number; x: number; y: number } | null = null;
     const pointerDown = (event: PointerEvent) => {
       if (event.button !== 0 || drag) return;
+      hover.clear();
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
       canvas.setPointerCapture(event.pointerId);
       canvas.dataset.dragging = "true";
     };
     const pointerMove = (event: PointerEvent) => {
-      if (!drag || drag.id !== event.pointerId) return;
+      if (!drag) {
+        if (moving && event.pointerType === "mouse" && event.buttons === 0) {
+          const bounds = canvas.getBoundingClientRect();
+          hover.move(event.clientX - bounds.left, event.clientY - bounds.top, event.timeStamp);
+        } else hover.clear();
+        return;
+      }
+      if (drag.id !== event.pointerId) return;
       viewRef.current.yaw += (event.clientX - drag.x) * 0.006;
       viewRef.current.pitch = Math.max(-1.5, Math.min(1.5, viewRef.current.pitch + (event.clientY - drag.y) * 0.006));
       drag.x = event.clientX;
@@ -169,10 +193,12 @@ export function GalaxyBackground() {
     const pointerEnd = (event: PointerEvent) => {
       if (drag?.id !== event.pointerId) return;
       drag = null;
+      hover.clear();
       delete canvas.dataset.dragging;
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     };
     const reset = () => {
+      clearDisturbance();
       viewRef.current = { yaw: 0, pitch: 0.58 };
       elapsedRef.current = 0;
       draw();
@@ -186,8 +212,11 @@ export function GalaxyBackground() {
       draw();
     };
     resetRef.current = reset;
+    const pointerLeave = () => hover.clear();
     canvas.addEventListener("pointerdown", pointerDown);
     canvas.addEventListener("pointermove", pointerMove);
+    canvas.addEventListener("pointerleave", pointerLeave);
+    window.addEventListener("blur", pointerLeave);
     canvas.addEventListener("pointerup", pointerEnd);
     canvas.addEventListener("pointercancel", pointerEnd);
     canvas.addEventListener("lostpointercapture", pointerEnd);
@@ -203,6 +232,8 @@ export function GalaxyBackground() {
       delete canvas.dataset.dragging;
       canvas.removeEventListener("pointerdown", pointerDown);
       canvas.removeEventListener("pointermove", pointerMove);
+      canvas.removeEventListener("pointerleave", pointerLeave);
+      window.removeEventListener("blur", pointerLeave);
       canvas.removeEventListener("pointerup", pointerEnd);
       canvas.removeEventListener("pointercancel", pointerEnd);
       canvas.removeEventListener("lostpointercapture", pointerEnd);
@@ -214,9 +245,9 @@ export function GalaxyBackground() {
   }, [paused, reducedMotion]);
 
   return <>
-    <div className="galaxy-background"><canvas ref={canvasRef} tabIndex={0} role="img" aria-label="Interactive spiral galaxy. Drag or use arrow keys to rotate. Press Home to reset the view." /></div>
+    <div className="galaxy-background"><canvas ref={canvasRef} tabIndex={0} role="img" aria-label="Interactive spiral galaxy. Move the mouse over the stars to stir them. Drag or use arrow keys to rotate. Press Home to reset the view." /></div>
     <div className="galaxy-controls">
-    <span className="galaxy-hint">Drag the stars to explore</span>
+    <span className="galaxy-hint">Move to stir the stars · Drag to rotate</span>
     <div className="galaxy-actions">
     {!reducedMotion && <button className="galaxy-motion" type="button" onClick={() => setPaused(!paused)} aria-label={paused ? "Play galaxy animation" : "Pause galaxy animation"}>
       <span aria-hidden="true">{paused ? "▷" : "Ⅱ"}</span> {paused ? "Play animation" : "Pause animation"}

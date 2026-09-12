@@ -156,3 +156,12 @@ The MVP is acceptable when all of the following are true:
 - illegal moves are rejected by the server
 - the game ends correctly on supported win or draw conditions
 - the project has enough documentation that another Codex can continue without re-discovering core decisions
+
+## Magic Board Mode
+
+- Every board surface, including live human/computer/tournament play, finished-game replay positions, and administrator/tournament spectating, offers an explicit Magic entry point.
+- Magic displays a floating orthographic 2.5D board and six recognizable modeled piece types in three distinct collections (Astral crystal, Sovereign gold, Neon mechanical), each available independently for White and Black. Skin preferences persist locally and do not affect the opponent's display.
+- Move arcs and trails, capture bursts, last-move markers, selected-piece rings, legal destinations, and check indicators communicate accepted moves. Castling animates both pieces; en passant and all four promotions render the server's accepted position.
+- Live play uses the existing game command and clock system. Switching presentation must not restart, pause, or leave the room. Spectator and replay positions remain read-only.
+- Magic provides only play, promotion, skin/effect customization, live status, and exit. Users must exit to use navigation, resignation, rematches, replay controls, export, analysis, or administration.
+- Support keyboard selection, touch/pointer selection, black-side orientation, reduced motion, narrow viewports, and an explicit exit when WebGL cannot load. Dispose GPU resources when Magic closes.

@@ -1,0 +1,32 @@
+.auth-shell { position: relative; isolation: isolate; min-height: 100svh; }
+.galaxy-background { position: fixed; inset: 0; z-index: -1; background: #05090d; }
+.galaxy-background canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: pan-y; }
+.galaxy-background canvas[data-dragging] { cursor: grabbing; }
+.galaxy-background canvas:focus-visible { outline: 1px solid #abc4d6; outline-offset: -6px; }
+.auth-shell .auth-card { position: relative; }
+.auth-shell > header { position: relative; align-items: center; }
+.auth-shell > header h1 { font-size: 2rem; letter-spacing: -.065em; }
+.auth-shell > header > .eyebrow { color: #99aebe; font-size: .6rem; }
+.auth-shell .auth-card { width: min(430px, 44%); margin: clamp(3rem, 10vh, 8rem) 0 4rem auto; padding: clamp(1.5rem, 3vw, 2.5rem); border-color: rgba(173, 205, 229, .2); background: rgba(10, 18, 26, .82); box-shadow: 0 24px 100px #0007; backdrop-filter: blur(20px); }
+.auth-shell .auth-card > .eyebrow { color: #abc4d6; letter-spacing: .22em; }
+.auth-shell .auth-card h2 { color: #f4f7fb; font-size: 2rem; letter-spacing: -.04em; }
+.auth-shell .auth-card p, .auth-shell .auth-card label { color: #b5c4ce; }
+.auth-shell .auth-card input { border-color: #344450; background: #0b1722; color: #f4f7fb; }
+.auth-shell .auth-card input:focus-visible { outline: 2px solid #a9dc73; outline-offset: 2px; }
+.auth-shell .auth-card input:autofill { box-shadow: 0 0 0 100px #0b1722 inset; -webkit-text-fill-color: #f4f7fb; caret-color: #f4f7fb; }
+.auth-shell .auth-card .auth-switch { background: transparent; color: #c3d1db; padding: .4rem .1rem; text-decoration: underline; text-underline-offset: 4px; font-size: .72rem; }
+.auth-shell .auth-card .admin-login { color: #b8d7ae; }
+.auth-shell .auth-card .notice { font-size: .76rem; }
+.galaxy-controls { position: fixed; left: max(1.5rem, calc((100vw - 1120px) / 2)); bottom: 1.5rem; z-index: 1; }
+.galaxy-hint { display: block; margin-bottom: .6rem; color: #91a7b7; font-size: .68rem; letter-spacing: .04em; }
+.galaxy-actions { display: flex; gap: .5rem; }
+.galaxy-motion { padding: .6rem .8rem; border: 1px solid #c6ddef26; border-radius: 999px; color: #b3c4d1; background: #081119eb; font-size: .7rem; font-weight: 500; }
+.galaxy-motion span { margin-right: .4rem; }
+.galaxy-motion:focus-visible { outline: 2px solid #a9dc73; outline-offset: 3px; }
+@media (max-width: 759px) {
+  .auth-shell .auth-card { width: min(100%, 430px); margin: 22vh auto 4rem; background: rgba(10, 18, 26, .9); }
+  .auth-shell > header { gap: .6rem; }
+  .auth-shell > header > .eyebrow { display: none; }
+  .galaxy-controls { left: 1rem; bottom: .75rem; }
+  .galaxy-hint { display: none; }
+}

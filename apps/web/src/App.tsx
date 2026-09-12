@@ -3,6 +3,7 @@ import { io, type Socket } from "socket.io-client";
 import type { AdminDashboard, AdminGameSummary, AdminLoginRequest, AdminSiteConfig, AdminUserActionRequest, AdminUserProfile, AdminUserSummary, AuthResponse, AuthUser, ChessColor, ComputerLevel, CreateComputerRoomRequest, CreateHumanRoomRequest, CredentialsRequest, GameAnalysis, JoinRoomResponse, MoveAnalysis, MoveRequest, RestartGameRequest, RoomSnapshot, ServerError, TournamentDetail, UserWarning } from "@chessss/shared";
 import { LeaderboardView, OwnProfileView } from "./RankingViews";
 import { TournamentAdminPanel, TournamentView } from "./TournamentViews";
+import { GalaxyBackground } from "./GalaxyBackground";
 
 const STORAGE_KEY = "chessss-player-session";
 const AUTH_STORAGE_KEY = "chessss-auth-session";
@@ -681,7 +682,8 @@ export function App() {
   const canAdminister = user?.role === "owner" || user?.role === "admin";
 
   return (
-    <main>
+    <main className={!user ? "auth-shell" : undefined}>
+      {!user && <GalaxyBackground />}
       <header>
         <p className="eyebrow">LAN MULTIPLAYER</p>
         <h1>Chessss</h1>

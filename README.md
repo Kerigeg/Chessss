@@ -12,6 +12,7 @@ Chessss is a server-authoritative chess application for local-area-network multi
 
 - LAN game rooms for two human players, with automatic rated/casual matchmaking by time control, private room-code joining, cancellation, and reconnect support.
 - Manual username/password sign-up and sign-in. Passwords are salted and hashed; browser sessions restore after a refresh.
+- Interactive 3D spiral-galaxy login background with glowing stars, pointer/touch and arrow-key rotation, reset/pause controls, and reduced-motion support. On touchscreens, horizontal swipes rotate while vertical swipes remain available for page scrolling.
 - A live role-based administrator control center for users, games, analysis jobs, audit activity, fair-play reviews, website controls, alerts, trends, and read-only spectating. Existing installations can use the legacy bootstrap code once, then enroll each administrator with an individual salted password and TOTP authenticator code.
 - Server-validated standard chess: legal moves, promotion, check, checkmate, stalemate, supported draws, and move history.
 - Server-authoritative clocks and timeout losses.
@@ -123,6 +124,7 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 
 - 局域网双人房间：通过六位房间码加入，并提供基础断线重连。
 - 支持手动用户名/密码注册和登录。密码会加盐哈希处理，刷新页面后会自动恢复浏览器会话。
+- 登录界面配有立体粒子星系背景，支持拖拽、方向键旋转、重置视角及暂停动画，并遵循系统的“减少动态效果”设置。手机上可横向滑动旋转星系，纵向滑动仍可滚动页面。
 - 提供实时、分角色的管理员控制中心，包含用户和棋局管理、分析任务、审计活动、公平竞赛审核、网站设置、告警、趋势图与只读观战。旧安装可先使用一次旧管理员代码，再为每位管理员启用独立加盐密码与 TOTP 验证器。
 - 服务端判定标准国际象棋规则：合法走子、升变、将军、将死、逼和、支持的和棋与走子记录。
 - 服务端权威计时与超时判负。

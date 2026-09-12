@@ -18,6 +18,8 @@ The format is intentionally lightweight and optimized for agent handoff:
 
 ### Added
 
+- Added a procedural 3D spiral-galaxy background to sign-in, sign-up, and administrator login, inspired by the Astra page: glowing blue/white/amber stars, perspective depth, pointer/touch and keyboard rotation, reset/pause controls, reduced-motion support, and mobile layout. No external image or rendering dependency is required.
+
 - Added automatic rated and casual matchmaking queues grouped by time control, with cancellation, disconnect cleanup, duplicate-search protection, and random color assignment.
 - Added persistent Bullet, Blitz, and Rapid Elo ratings with provisional K-factors, peak/streak statistics, rating history, exact auditable reversals, duplicate-result protection, and repeated-opponent limits.
 - Added rated/casual human-room selection, starting ratings, win/draw/loss estimates, post-game rating results, resign support, public leaderboards, searchable player profiles, and eligibility filtering.

@@ -33,6 +33,12 @@ Chessss is a server-authoritative chess application for local-area-network multi
 - Persistent 4–32 player Swiss tournaments support player-submitted private drafts, admin/moderator approval and permanent deletion, creator-managed event lifecycles, registration, optional check-in, 3–7 rounds, automatic assigned rooms, live standings, Buchholz tie-breaks, byes, spectating, forfeits, pause/resume, and restart recovery.
 - Competitive state is server-authoritative and idempotent: duplicate completion events cannot award Elo or tournament points twice, and administrative forfeits never affect Elo.
 
+### Magic board
+
+Click **Enter Magic** above any board to open the immersive 2.5D chamber. Select pieces and destinations as usual; White and Black can independently use **Astral**, **Sovereign**, or **Neon** models. Skins are saved on this browser. The scene includes move trails, capture bursts, legal destinations, and check rings. Arrow keys navigate the keyboard board, and Enter selects a square.
+
+Click **Exit Magic** or press **Esc** to return to the standard interface for replay, analysis, exports, resignation, or other features. Clocks continue normally. Spectator and replay positions stay read-only. Motion respects the system preference and can be switched off. WebGL2 is required for the 3D scene; the standard board remains available if graphics initialization fails.
+
 ### Prerequisites
 
 - Node.js 24, or a current Node.js LTS release with Corepack.
@@ -144,6 +150,12 @@ Chessss 是一款支持局域网双人对战和人机对战的国际象棋应用
 - 各分池公开排行榜要求至少完成 5 局合资格对局并保持近期活跃；棋手档案包含当前/峰值等级分、战绩、近期分数记录与锦标赛历史。
 - 支持持久化的 4–32 人 Swiss 锦标赛：报名、可选 check-in、3–7 轮、自动分配房间、实时排名、Buchholz 同分判定、轮空、观战、弃权与管理员全生命周期控制。
 - 等级分和锦标赛结果均由服务端权威处理且具有幂等性；重复终局事件不会重复加分，管理员判定的弃权不会改变 Elo。
+
+### Magic 沉浸式棋盘
+
+在任意棋盘上方点击 **Enter Magic**，即可进入悬浮 2.5D 棋盘。黑白双方可分别选择 **星辉水晶 / 鎏金王朝 / 霓虹机甲** 三套建模皮肤，并在当前浏览器保存选择。支持走子轨迹、吃子粒子、合法落点提示、将军光环，以及方向键导航和 Enter 选格。
+
+点击 **Exit Magic** 或按 **Esc** 返回普通模式后，才能使用复盘、分析、导出、认输等其他功能。切换不会暂停计时或重开棋局；观战和历史局面保持只读。可关闭动态特效，默认尊重系统的减少动态效果设置。3D 场景需要 WebGL2，加载失败时可返回普通棋盘继续。
 
 ### 环境要求
 
